@@ -1,0 +1,86 @@
+Build a “Claims File Correction Workbench” frontend using React + Vite.
+
+Goal:
+- Load a PDF into Nutrient Web SDK (Document Engine mode).
+- Load a structured Issue Bundle JSON from my backend.
+- Show issues in a left sidebar and draw highlight boxes on the PDF.
+- Allow “Human-in-the-loop” correction:
+  - Apply Suggested Fix (auto) with a confirmation step
+  - Manual Edit mode (let user edit using viewer tools)
+  - Reject / mark false-positive
+- Persist edits live (Document Engine autosave OR a Save button calling instance.save()).
+- Log audit events to the backend.
+
+Tech requirements:
+- Use @nutrient-sdk/viewer and load the SDK with `useCDN: true` so assets work in Replit.
+- Provide a single viewer container with explicit height/width via CSS.
+- Use environment variable VITE_API_BASE_URL for backend base URL.
+
+Backend endpoints the UI must call:
+1) GET `${VITE_API_BASE_URL}/api/claims` -> list of claims/documents (demo can return hardcoded)
+2) GET `${VITE_API_BASE_URL}/api/session/:documentId` -> returns:
+   { documentId, jwt, serverUrl, instant, autoSaveMode, exp }
+3) GET `${VITE_API_BASE_URL}/api/claims/:claimId/documents/:documentId/issues` -> Issue Bundle JSON:
+   { schemaVersion, claimId, document: { documentId, fingerprint }, issues: [ ... ] }
+4) POST `${VITE_API_BASE_URL}/api/audit` -> body:
+   { claimId, documentId, issueId, action, method, before, after, user, ts }
+
+Issue object shape (support at least):
+- issueId, type, severity, confidence
+- pageIndex (0-based)
+- rect: { left, top, width, height } (assume already in Nutrient page coordinates)
+- foundValue, expectedValue
+- suggestedFix: { strategy: "auto"|"manual", requiresApproval: boolean, fallbackOrder: ["form_field","content_edit","redaction_overlay"] }
+
+UI behavior:
+- Layout: top bar (claim selector + document selector + load button + save/export buttons), left sidebar (issues list with status pills), main area (Nutrient viewer).
+- Clicking an issue:
+  - Navigate to issue.pageIndex using instance.setViewState(viewState => viewState.set("currentPageIndex", issue.pageIndex))
+  - Visually emphasize that issue by creating/updating a RectangleAnnotation overlay box for issue.rect
+  - Scroll/focus to it if possible.
+- Draw all issues as non-editable highlight/box annotations when loaded (store mapping issueId -> annotationId).
+- Status workflow per issue: OPEN -> (APPLIED | MANUAL | REJECTED).
+- Add filters: All / Open / Applied / Rejected.
+
+Auto-correct “Apply Suggested Fix” (implement a FixEngine with fallback):
+1) form_field:
+   - Try to detect if a form field exists on the page near the rect:
+     - instance.getFormFields()
+     - If issue includes `formFieldName`, use it directly.
+     - Else try fuzzy match by name containing "policy" or the issue label.
+   - Set value via instance.setFormFieldValues([{ name: <fieldName>, value: expectedValue }])
+2) content_edit (programmatic):
+   - Start session: const session = await instance.beginContentEditingSession()
+   - Get text blocks for issue.pageIndex
+   - Choose the text block that overlaps issue.rect and contains foundValue
+   - Update that block using session.updateTextBlocks([{ id: block.id, text: block.text.replace(foundValue, expectedValue) }])
+   - Commit: await session.commit()
+   - After commit, reload issues overlays (since doc content may reload)
+3) redaction_overlay fallback:
+   - Create a RedactionAnnotation covering issue.rect with overlayText = expectedValue
+   - DO NOT call applyRedactions automatically; require a user confirmation step.
+   - If user confirms, call instance.applyRedactions() and then mark issue APPLIED with method "redaction_overlay".
+
+Saving/export:
+- In Document Engine mode:
+  - If autosave is DISABLED, expose a Save button calling await instance.save()
+  - If autosave is enabled, show “Saved automatically”
+- Also provide a “Download PDF” button that calls instance.exportPDF() and downloads it (works in standalone; in server-backed, still attempt).
+
+Audit logging:
+- On apply/reject/manual, POST to /api/audit with before/after and method.
+- Include a simple “user” string from a text input in the top bar.
+
+Implementation details:
+- Create a `useNutrientViewer()` hook that:
+  - Loads/unloads NutrientViewer into a ref div
+  - Stores `instance` in state
+- Ensure unload is called on document reload and component unmount.
+- Add robust error handling with toast messages.
+
+Deliverables:
+- Full working code with clear file structure.
+- A README with:
+  - npm install / npm run dev
+  - required env vars (VITE_API_BASE_URL)
+  - how to run against the backend repl
