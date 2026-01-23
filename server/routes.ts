@@ -96,14 +96,22 @@ function sanitizeId(id: string | string[]): string | null {
   return idStr;
 }
 
-function documentExists(documentId: string): boolean {
+function documentExists(documentId: string, claimId?: string): boolean {
   const index = readIndex();
   for (const claim of index.claims) {
+    if (claimId && claim.claimId !== claimId) {
+      continue;
+    }
     if (claim.documents?.some((doc: any) => doc.documentId === documentId)) {
       return true;
     }
   }
   return false;
+}
+
+function claimExists(claimId: string): boolean {
+  const index = readIndex();
+  return index.claims.some((c) => c.claimId === claimId);
 }
 
 function getClaimForDocument(documentId: string): string | null {
@@ -190,9 +198,14 @@ export async function registerRoutes(
 
   app.get("/api/claims/:claimId/documents", async (req, res) => {
     try {
-      const { claimId } = req.params;
+      const sanitizedClaimId = sanitizeId(req.params.claimId);
+      
+      if (!sanitizedClaimId) {
+        return res.status(400).json({ error: "Invalid claim ID" });
+      }
+      
       const index = readIndex();
-      const claim = index.claims.find((c) => c.claimId === claimId);
+      const claim = index.claims.find((c) => c.claimId === sanitizedClaimId);
       
       if (!claim) {
         return res.json([]);
@@ -201,7 +214,7 @@ export async function registerRoutes(
       const documents = claim.documents.map((doc: any) => ({
         documentId: doc.documentId,
         name: doc.title,
-        claimId,
+        claimId: sanitizedClaimId,
       }));
 
       res.json(documents);
@@ -368,6 +381,10 @@ export async function registerRoutes(
       
       if (!sanitizedClaimId || !sanitizedDocId) {
         return res.status(400).json({ error: "Invalid claim or document ID" });
+      }
+      
+      if (!documentExists(sanitizedDocId, sanitizedClaimId)) {
+        return res.status(404).json({ error: "Document not found for this claim" });
       }
       
       const issuesPath = path.join(STORAGE_DIR, `${sanitizedClaimId}__${sanitizedDocId}__issues.json`);
