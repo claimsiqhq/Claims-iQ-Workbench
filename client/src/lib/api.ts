@@ -35,4 +35,32 @@ export const api = {
     });
     if (!res.ok) throw new Error("Failed to log audit");
   },
+
+  async uploadDocument(
+    claimId: string, 
+    file: File, 
+    issues?: object
+  ): Promise<{ claimId: string; documentId: string }> {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (issues) {
+      formData.append("issues", JSON.stringify(issues));
+    }
+    
+    const res = await fetch(`${API_BASE}/api/claims/${claimId}/documents`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) throw new Error("Failed to upload document");
+    return res.json();
+  },
+
+  async getAuditLogs(documentId?: string): Promise<AuditLog[]> {
+    const url = documentId 
+      ? `${API_BASE}/api/audit?documentId=${documentId}`
+      : `${API_BASE}/api/audit`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Failed to fetch audit logs");
+    return res.json();
+  },
 };

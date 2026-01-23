@@ -61,11 +61,17 @@ export const DocumentSchema = z.object({
   claimId: z.string(),
 });
 
+export const ClaimDocumentRefSchema = z.object({
+  documentId: z.string(),
+  title: z.string(),
+});
+
 export const ClaimSchema = z.object({
   claimId: z.string(),
-  claimNumber: z.string(),
-  policyNumber: z.string(),
-  status: z.string(),
+  claimNumber: z.string().optional(),
+  policyNumber: z.string().optional(),
+  status: z.string().optional(),
+  documents: z.array(ClaimDocumentRefSchema).optional(),
 });
 
 export const SessionDataSchema = z.object({

@@ -1,17 +1,19 @@
 # Claims File Correction Workbench
 
-A professional "Human-in-the-loop" document processing interface that integrates with Nutrient Web SDK for PDF review and issue correction.
+A professional "Human-in-the-loop" document processing interface that integrates with Nutrient Web SDK and Document Engine for PDF review and issue correction.
 
 ## Features
 
 - **PDF Document Viewer**: Load and view PDF documents using Nutrient Web SDK
+- **Document Engine Integration**: Full server-backed PDF processing with JWT authentication
 - **Issue Detection & Visualization**: Automatically highlight detected issues with color-coded severity levels
 - **Smart Correction Workflows**:
   - **Auto-Apply**: Automatic corrections with fallback strategies (form fields → content editing → redaction overlay)
   - **Manual Edit**: Use Nutrient viewer tools for manual corrections
   - **Reject**: Mark issues as false positives
 - **Issue Management**: Filter issues by status (All, Open, Applied, Rejected)
-- **Audit Logging**: Complete audit trail of all correction actions
+- **Audit Logging**: Complete audit trail with file persistence
+- **PDF Upload**: Upload documents with associated issue bundles
 - **Live Save/Export**: Save changes and download corrected PDFs
 
 ## Tech Stack
@@ -19,8 +21,9 @@ A professional "Human-in-the-loop" document processing interface that integrates
 - **Frontend**: React 19 + Vite + TypeScript
 - **UI Components**: Radix UI + Tailwind CSS
 - **State Management**: TanStack Query
-- **PDF Engine**: Nutrient Web SDK (Document Engine mode)
+- **PDF Engine**: Nutrient Web SDK + Document Engine
 - **Backend**: Express + Node.js
+- **Authentication**: JWT (RS256) for Document Engine
 
 ## Getting Started
 
@@ -28,6 +31,7 @@ A professional "Human-in-the-loop" document processing interface that integrates
 
 - Node.js 20+
 - npm
+- (Optional) Nutrient Document Engine instance
 
 ### Installation
 
@@ -40,12 +44,44 @@ npm install
 Create a `.env` file in the root directory:
 
 ```env
-# Optional: Backend API base URL (defaults to same origin)
-VITE_API_BASE_URL=http://localhost:5000
+# Server port (defaults to 5000)
+PORT=5000
 
-# Optional: Nutrient SDK license key (for production)
-# VITE_NUTRIENT_LICENSE_KEY=your_license_key_here
+# Document Engine Configuration (optional - for server-backed mode)
+DOC_ENGINE_URL=https://your-document-engine.example.com/
+DOC_ENGINE_API_TOKEN=your_document_engine_api_token
+
+# JWT Configuration (required for Document Engine mode)
+# See "Generating RSA Keys" section below
+JWT_PRIVATE_KEY_PEM="-----BEGIN RSA PRIVATE KEY-----
+...your private key here...
+-----END RSA PRIVATE KEY-----"
+JWT_EXPIRES_IN_SECONDS=3600
+JWT_PERMISSIONS=read-document,write,download
+
+# Public URL for this backend (for Document Engine to fetch PDFs)
+PUBLIC_BASE_URL=https://your-replit-app.replit.app
+
+# Frontend configuration
+VITE_API_BASE_URL=
 ```
+
+### Generating RSA Keys
+
+For Document Engine JWT authentication, generate an RSA key pair:
+
+```bash
+# Generate private key
+openssl genrsa -out private.pem 2048
+
+# Generate public key (provide to Document Engine)
+openssl rsa -in private.pem -pubout -out public.pem
+
+# View private key content (copy to JWT_PRIVATE_KEY_PEM)
+cat private.pem
+```
+
+The public key (`public.pem`) should be configured in your Nutrient Document Engine instance.
 
 ### Running the Application
 
@@ -62,6 +98,71 @@ The application will start on `http://localhost:5000`
 ```bash
 npm run build
 npm start
+```
+
+## API Endpoints
+
+### Health Check
+```
+GET /api/health
+Response: { ok: true }
+```
+
+### List Claims
+```
+GET /api/claims
+Response: [{ claimId, documents: [{ documentId, title }] }]
+```
+
+### Get Documents for Claim
+```
+GET /api/claims/:claimId/documents
+Response: [{ documentId, name, claimId }]
+```
+
+### Upload Document with Issues
+```
+POST /api/claims/:claimId/documents
+Content-Type: multipart/form-data
+Fields:
+  - file: PDF file (required, max 25MB)
+  - issues: JSON string or issues.json file (optional)
+Response: { claimId, documentId }
+```
+
+### Get Session for Document
+```
+GET /api/session/:documentId
+Response: {
+  documentId,
+  jwt,           // JWT token for Document Engine
+  serverUrl,     // Document Engine URL
+  instant,       // "true" for instant mode
+  autoSaveMode,  // "INTELLIGENT" | "DISABLED"
+  exp            // JWT expiration timestamp
+}
+```
+
+### Get Issues for Document
+```
+GET /api/claims/:claimId/documents/:documentId/issues
+Response: Issue Bundle JSON
+```
+
+### Public File Access (for Document Engine)
+```
+GET /files/:documentId.pdf
+Response: PDF file (no authentication required)
+```
+
+### Audit Logging
+```
+POST /api/audit
+Body: { claimId, documentId, issueId, action, method, before, after, user, ts }
+Response: { success: true }
+
+GET /api/audit?documentId=...
+Response: Array of recent audit events
 ```
 
 ## Usage Guide
@@ -99,28 +200,10 @@ For each issue, you have three options:
 - Mark the issue as a false positive
 - Removes from active correction queue
 
-### 4. Navigate & Filter
+### 4. Save & Export
 
-- **Click an issue** to navigate to its location in the PDF
-- **Use filters** to view: All, Open, Applied, or Rejected issues
-- **Status updates** happen in real-time
-
-### 5. Save & Export
-
-- **Save**: Persist changes to the document (if autosave is disabled)
+- **Save**: Persist changes to the document
 - **Download PDF**: Export the corrected document locally
-
-## API Endpoints
-
-The backend provides the following REST endpoints:
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/claims` | GET | List all claims |
-| `/api/claims/:claimId/documents` | GET | Get documents for a claim |
-| `/api/session/:documentId` | GET | Get Nutrient session data |
-| `/api/claims/:claimId/documents/:documentId/issues` | GET | Get issue bundle |
-| `/api/audit` | POST | Log audit events |
 
 ## Issue Correction Strategies
 
@@ -166,16 +249,26 @@ The **FixEngine** implements three fallback strategies:
 }
 ```
 
-## Integrating with a Backend
+## File Structure
 
-To connect to a real backend (instead of demo data):
-
-1. Set `VITE_API_BASE_URL` to your backend URL
-2. Implement the API endpoints listed above
-3. For Document Engine mode, provide:
-   - `serverUrl`: Your Nutrient Document Engine URL
-   - `jwt`: Authentication token
-   - `documentId`: Unique document identifier
+```
+├── client/
+│   └── src/
+│       ├── components/ui/    # Reusable UI components
+│       ├── hooks/            # Custom React hooks
+│       ├── lib/              # Utilities (API, FixEngine)
+│       └── pages/            # Page components
+├── server/
+│   ├── index.ts              # Express server setup
+│   ├── routes.ts             # API route handlers
+│   └── storage.ts            # Data storage interface
+├── shared/
+│   └── schema.ts             # Shared type definitions
+├── data/
+│   ├── index.json            # Claims/documents index
+│   └── audit.log             # Audit log (JSONL format)
+└── storage/                  # PDF and issue bundle storage
+```
 
 ## Development
 
@@ -191,21 +284,23 @@ npm run check
 npm run build
 ```
 
-## Architecture
+## Document Engine Integration
 
-```
-client/
-  ├── src/
-  │   ├── components/ui/    # Reusable UI components
-  │   ├── hooks/            # Custom React hooks
-  │   ├── lib/              # Utilities (API, FixEngine)
-  │   └── pages/            # Page components
-server/
-  ├── routes.ts             # API route handlers
-  └── storage.ts            # Data storage interface
-shared/
-  └── schema.ts             # Shared type definitions
-```
+When Document Engine is configured:
+
+1. **Upload Flow**:
+   - PDF uploaded to `/storage/<documentId>.pdf`
+   - Backend registers document with Document Engine via API
+   - Document Engine fetches PDF from `/files/<documentId>.pdf`
+
+2. **Session Flow**:
+   - Frontend requests session for document
+   - Backend generates JWT with document permissions
+   - Frontend loads Nutrient viewer with JWT credentials
+
+3. **Save Flow**:
+   - Autosave mode syncs changes to Document Engine
+   - Or manual save via `instance.save()`
 
 ## License
 

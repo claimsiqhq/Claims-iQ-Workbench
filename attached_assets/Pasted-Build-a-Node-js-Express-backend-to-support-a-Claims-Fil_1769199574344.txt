@@ -1,0 +1,108 @@
+Build a Node.js + Express backend to support a “Claims File Correction Workbench” frontend that uses Nutrient Web SDK + Document Engine.
+
+Goal:
+- Serve Issue Bundle JSON per claim/document
+- Issue JWT sessions for Document Engine
+- (Optional but preferred) accept PDF + Issue JSON upload and register the PDF with Document Engine using “Create document from URL”
+- Provide audit logging endpoints
+- Make the stored PDFs publicly accessible so Document Engine can fetch them by URL (NO auth on the file URL)
+
+Use these environment variables:
+- PORT=3000
+- DOC_ENGINE_URL=https://<your-document-engine>/   (no trailing path; include trailing slash ok)
+- DOC_ENGINE_API_TOKEN=<secret token for Document Engine server API>
+- JWT_PRIVATE_KEY_PEM=<RSA private key PEM (multiline supported)>
+- JWT_EXPIRES_IN_SECONDS=3600
+- JWT_PERMISSIONS=read-document,write,download
+- PUBLIC_BASE_URL=https://<this-backend-repl-public-url>
+
+Important Document Engine behavior:
+- Register document by URL:
+  - POST to `${DOC_ENGINE_URL}/api/documents`
+  - Header: Authorization: Token token="<DOC_ENGINE_API_TOKEN>"
+  - JSON body: { "url": "<PUBLIC_BASE_URL>/files/<documentId>.pdf", "document_id": "<documentId>" }
+- Client JWT must include:
+  - document_id: "<documentId>"
+  - permissions: ["read-document","write","download"]
+- If permission "write" is missing, the doc is read-only.
+
+API routes to implement:
+
+1) Health
+GET /api/health
+-> { ok: true }
+
+2) List claims/documents (demo)
+GET /api/claims
+-> return a list like:
+[
+  { claimId: "CLM-001", documents: [{ documentId: "DOC-001", title: "claim.pdf" }] }
+]
+Persist in a simple JSON file in ./data/index.json.
+
+3) Upload a claim document + issues (preferred)
+POST /api/claims/:claimId/documents
+- multipart/form-data with fields:
+  - file: PDF
+  - issues: JSON string OR issues.json file
+- Server behavior:
+  - Generate a documentId (uuid)
+  - Save PDF to ./storage/<documentId>.pdf
+  - Save issues bundle to ./storage/<claimId>__<documentId>__issues.json
+  - Add entry to ./data/index.json
+  - Register the doc with Document Engine using Create-from-URL flow:
+    POST /api/documents to Document Engine with url pointing to /files/<documentId>.pdf and document_id = documentId
+  - Return { claimId, documentId }
+
+4) Public file hosting for Document Engine to fetch (no auth)
+GET /files/:documentId.pdf
+-> serves ./storage/:documentId.pdf
+
+5) Issue bundle retrieval
+GET /api/claims/:claimId/documents/:documentId/issues
+-> returns the stored issues JSON for that claim/doc
+
+6) Session endpoint for frontend viewer load
+GET /api/session/:documentId
+-> returns:
+{
+  documentId,
+  jwt,
+  serverUrl: DOC_ENGINE_URL,
+  instant: true,
+  autoSaveMode: "INTELLIGENT",
+  exp: <jwt exp timestamp>
+}
+Implementation:
+- Use jsonwebtoken
+- Sign RS256 using JWT_PRIVATE_KEY_PEM
+- claims: { document_id: documentId, permissions: [ ...from env... ] }
+- expiresIn: JWT_EXPIRES_IN_SECONDS
+
+7) Audit logging
+POST /api/audit
+- body:
+{ claimId, documentId, issueId, action, method, before, after, user, ts }
+- append each record to ./data/audit.log (jsonl), and also keep last 200 in memory for quick viewing
+GET /api/audit?documentId=... optional -> return recent events
+
+Engineering requirements:
+- Use CORS (allow the frontend repl origin and localhost)
+- Validate uploads:
+  - only application/pdf
+  - max size 25MB for demo
+- Document Engine registration:
+  - handle already-registered (if POST fails, still allow session for existing documentId)
+- Provide a README with:
+  - how to generate RSA keys (openssl example)
+  - required env vars
+  - how to run
+
+Deliverables:
+- Complete working Express server
+- Uses node-fetch (or built-in fetch) to call Document Engine server API
+- Clear folder structure:
+  /server.js
+  /data/index.json
+  /data/audit.log
+  /storage/

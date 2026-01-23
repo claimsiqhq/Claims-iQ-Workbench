@@ -1,0 +1,13 @@
+{
+  "claims": [
+    {
+      "claimId": "CLM-001",
+      "documents": [
+        {
+          "documentId": "DOC-001",
+          "title": "claim.pdf"
+        }
+      ]
+    }
+  ]
+}
