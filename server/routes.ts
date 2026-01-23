@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { AuditLogSchema, SessionDataSchema } from "@shared/schema";
+import { AuditLogSchema, SessionDataSchema, IssueBundleSchema } from "@shared/schema";
 import jwt from "jsonwebtoken";
 import multer from "multer";
 import { v4 as uuidv4 } from "uuid";
@@ -86,6 +86,15 @@ function generateJWT(documentId: string): { jwt: string; exp: number } {
   return { jwt: token, exp: decoded.exp };
 }
 
+function sanitizeId(id: string | string[]): string {
+  const idStr = Array.isArray(id) ? id[0] : id;
+  return idStr.replace(/[^a-zA-Z0-9-_]/g, "");
+}
+
+function normalizeUrl(url: string): string {
+  return url.endsWith("/") ? url : url + "/";
+}
+
 async function registerWithDocEngine(documentId: string): Promise<boolean> {
   const docEngineUrl = process.env.DOC_ENGINE_URL;
   const apiToken = process.env.DOC_ENGINE_API_TOKEN;
@@ -96,10 +105,12 @@ async function registerWithDocEngine(documentId: string): Promise<boolean> {
     return false;
   }
 
-  const pdfUrl = `${publicBaseUrl}/files/${documentId}.pdf`;
+  const normalizedEngineUrl = normalizeUrl(docEngineUrl);
+  const normalizedPublicUrl = normalizeUrl(publicBaseUrl);
+  const pdfUrl = `${normalizedPublicUrl}files/${documentId}.pdf`;
 
   try {
-    const response = await fetch(`${docEngineUrl}api/documents`, {
+    const response = await fetch(`${normalizedEngineUrl}api/documents`, {
       method: "POST",
       headers: {
         Authorization: `Token token="${apiToken}"`,
@@ -180,6 +191,12 @@ export async function registerRoutes(
   ]), async (req, res) => {
     try {
       const { claimId } = req.params;
+      const sanitizedClaimId = sanitizeId(claimId);
+      
+      if (sanitizedClaimId !== claimId) {
+        return res.status(400).json({ error: "Invalid claim ID format" });
+      }
+      
       const files = req.files as { [fieldname: string]: Express.Multer.File[] };
 
       if (!files.file || files.file.length === 0) {
@@ -193,26 +210,35 @@ export async function registerRoutes(
       fs.renameSync(pdfFile.path, pdfPath);
 
       let issuesData: any = null;
-      if (files.issues && files.issues.length > 0) {
-        const issuesContent = fs.readFileSync(files.issues[0].path, "utf-8");
-        issuesData = JSON.parse(issuesContent);
-        fs.unlinkSync(files.issues[0].path);
-      } else if (req.body.issues) {
-        issuesData = typeof req.body.issues === "string" 
-          ? JSON.parse(req.body.issues) 
-          : req.body.issues;
-      }
+      try {
+        if (files.issues && files.issues.length > 0) {
+          const issuesContent = fs.readFileSync(files.issues[0].path, "utf-8");
+          issuesData = JSON.parse(issuesContent);
+          fs.unlinkSync(files.issues[0].path);
+        } else if (req.body.issues) {
+          issuesData = typeof req.body.issues === "string" 
+            ? JSON.parse(req.body.issues) 
+            : req.body.issues;
+        }
 
-      if (issuesData) {
-        const issuesPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__issues.json`);
-        fs.writeFileSync(issuesPath, JSON.stringify(issuesData, null, 2));
+        if (issuesData) {
+          const validated = IssueBundleSchema.safeParse(issuesData);
+          if (!validated.success) {
+            console.warn("Issues validation failed:", validated.error.message);
+          }
+          
+          const issuesPath = path.join(STORAGE_DIR, `${sanitizedClaimId}__${documentId}__issues.json`);
+          fs.writeFileSync(issuesPath, JSON.stringify(issuesData, null, 2));
+        }
+      } catch (parseError) {
+        console.warn("Issues JSON parsing failed:", parseError);
       }
 
       const index = readIndex();
-      let claim = index.claims.find((c) => c.claimId === claimId);
+      let claim = index.claims.find((c) => c.claimId === sanitizedClaimId);
       
       if (!claim) {
-        claim = { claimId, documents: [] };
+        claim = { claimId: sanitizedClaimId, documents: [] };
         index.claims.push(claim);
       }
 
@@ -225,53 +251,74 @@ export async function registerRoutes(
 
       await registerWithDocEngine(documentId);
 
-      res.json({ claimId, documentId });
+      res.json({ claimId: sanitizedClaimId, documentId });
     } catch (error) {
       console.error("Upload error:", error);
       res.status(500).json({ error: "Failed to upload document" });
     }
   });
 
-  app.get("/files/:filename", (req, res) => {
-    const { filename } = req.params;
-    const filePath = path.join(STORAGE_DIR, filename);
+  app.get("/files/:documentId.pdf", (req, res) => {
+    const { documentId } = req.params;
+    
+    const sanitizedId = documentId.replace(/[^a-zA-Z0-9-]/g, "");
+    if (sanitizedId !== documentId) {
+      return res.status(400).json({ error: "Invalid document ID" });
+    }
+    
+    const filePath = path.join(STORAGE_DIR, `${sanitizedId}.pdf`);
 
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: "File not found" });
     }
 
+    res.setHeader("Content-Type", "application/pdf");
     res.sendFile(filePath);
   });
 
   app.get("/api/session/:documentId", async (req, res) => {
     try {
       const { documentId } = req.params;
+      const sanitizedDocId = sanitizeId(documentId);
+      
+      if (sanitizedDocId !== documentId) {
+        return res.status(400).json({ error: "Invalid document ID" });
+      }
+      
       const docEngineUrl = process.env.DOC_ENGINE_URL;
+      const privateKey = process.env.JWT_PRIVATE_KEY_PEM;
 
-      if (process.env.JWT_PRIVATE_KEY_PEM) {
+      if (privateKey && docEngineUrl) {
         try {
-          const { jwt: token, exp } = generateJWT(documentId);
+          const { jwt: token, exp } = generateJWT(sanitizedDocId);
+          const normalizedEngineUrl = normalizeUrl(docEngineUrl);
 
-          const sessionData = {
-            documentId,
+          const sessionData = SessionDataSchema.parse({
+            documentId: sanitizedDocId,
             jwt: token,
-            serverUrl: docEngineUrl || undefined,
-            instant: docEngineUrl ? "true" : undefined,
+            serverUrl: normalizedEngineUrl,
+            instant: normalizedEngineUrl,
             autoSaveMode: "INTELLIGENT" as const,
             exp,
-          };
+          });
 
           return res.json(sessionData);
         } catch (jwtError) {
           console.error("JWT generation failed:", jwtError);
+          return res.status(500).json({ 
+            error: "JWT configuration error. Check JWT_PRIVATE_KEY_PEM format." 
+          });
         }
       }
 
-      res.json({
-        documentId,
+      const fallbackSession = SessionDataSchema.parse({
+        documentId: sanitizedDocId,
         autoSaveMode: "DISABLED" as const,
       });
+      
+      res.json(fallbackSession);
     } catch (error) {
+      console.error("Session error:", error);
       res.status(500).json({ error: "Failed to create session" });
     }
   });
