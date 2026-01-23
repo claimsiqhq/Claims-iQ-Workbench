@@ -86,9 +86,34 @@ function generateJWT(documentId: string): { jwt: string; exp: number } {
   return { jwt: token, exp: decoded.exp };
 }
 
-function sanitizeId(id: string | string[]): string {
+const ID_PATTERN = /^[a-zA-Z0-9-_]+$/;
+
+function sanitizeId(id: string | string[]): string | null {
   const idStr = Array.isArray(id) ? id[0] : id;
-  return idStr.replace(/[^a-zA-Z0-9-_]/g, "");
+  if (!idStr || !ID_PATTERN.test(idStr)) {
+    return null;
+  }
+  return idStr;
+}
+
+function documentExists(documentId: string): boolean {
+  const index = readIndex();
+  for (const claim of index.claims) {
+    if (claim.documents?.some((doc: any) => doc.documentId === documentId)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getClaimForDocument(documentId: string): string | null {
+  const index = readIndex();
+  for (const claim of index.claims) {
+    if (claim.documents?.some((doc: any) => doc.documentId === documentId)) {
+      return claim.claimId;
+    }
+  }
+  return null;
 }
 
 function normalizeUrl(url: string): string {
@@ -190,10 +215,9 @@ export async function registerRoutes(
     { name: "issues", maxCount: 1 },
   ]), async (req, res) => {
     try {
-      const { claimId } = req.params;
-      const sanitizedClaimId = sanitizeId(claimId);
+      const sanitizedClaimId = sanitizeId(req.params.claimId);
       
-      if (sanitizedClaimId !== claimId) {
+      if (!sanitizedClaimId) {
         return res.status(400).json({ error: "Invalid claim ID format" });
       }
       
@@ -224,14 +248,22 @@ export async function registerRoutes(
         if (issuesData) {
           const validated = IssueBundleSchema.safeParse(issuesData);
           if (!validated.success) {
-            console.warn("Issues validation failed:", validated.error.message);
+            fs.unlinkSync(pdfPath);
+            return res.status(400).json({ 
+              error: "Invalid issues format", 
+              details: validated.error.message 
+            });
           }
           
           const issuesPath = path.join(STORAGE_DIR, `${sanitizedClaimId}__${documentId}__issues.json`);
-          fs.writeFileSync(issuesPath, JSON.stringify(issuesData, null, 2));
+          fs.writeFileSync(issuesPath, JSON.stringify(validated.data, null, 2));
         }
       } catch (parseError) {
-        console.warn("Issues JSON parsing failed:", parseError);
+        fs.unlinkSync(pdfPath);
+        return res.status(400).json({ 
+          error: "Invalid issues JSON", 
+          details: parseError instanceof Error ? parseError.message : "Parse error" 
+        });
       }
 
       const index = readIndex();
@@ -259,14 +291,17 @@ export async function registerRoutes(
   });
 
   app.get("/files/:documentId.pdf", (req, res) => {
-    const { documentId } = req.params;
+    const documentId = sanitizeId(req.params.documentId);
     
-    const sanitizedId = documentId.replace(/[^a-zA-Z0-9-]/g, "");
-    if (sanitizedId !== documentId) {
+    if (!documentId) {
       return res.status(400).json({ error: "Invalid document ID" });
     }
     
-    const filePath = path.join(STORAGE_DIR, `${sanitizedId}.pdf`);
+    if (!documentExists(documentId)) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+    
+    const filePath = path.join(STORAGE_DIR, `${documentId}.pdf`);
 
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: "File not found" });
@@ -278,11 +313,14 @@ export async function registerRoutes(
 
   app.get("/api/session/:documentId", async (req, res) => {
     try {
-      const { documentId } = req.params;
-      const sanitizedDocId = sanitizeId(documentId);
+      const sanitizedDocId = sanitizeId(req.params.documentId);
       
-      if (sanitizedDocId !== documentId) {
+      if (!sanitizedDocId) {
         return res.status(400).json({ error: "Invalid document ID" });
+      }
+      
+      if (!documentExists(sanitizedDocId)) {
+        return res.status(404).json({ error: "Document not found" });
       }
       
       const docEngineUrl = process.env.DOC_ENGINE_URL;
@@ -325,16 +363,21 @@ export async function registerRoutes(
 
   app.get("/api/claims/:claimId/documents/:documentId/issues", async (req, res) => {
     try {
-      const { claimId, documentId } = req.params;
+      const sanitizedClaimId = sanitizeId(req.params.claimId);
+      const sanitizedDocId = sanitizeId(req.params.documentId);
       
-      const issuesPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__issues.json`);
+      if (!sanitizedClaimId || !sanitizedDocId) {
+        return res.status(400).json({ error: "Invalid claim or document ID" });
+      }
+      
+      const issuesPath = path.join(STORAGE_DIR, `${sanitizedClaimId}__${sanitizedDocId}__issues.json`);
       
       if (fs.existsSync(issuesPath)) {
         const issuesData = fs.readFileSync(issuesPath, "utf-8");
         return res.json(JSON.parse(issuesData));
       }
 
-      const issues = await storage.getIssues(claimId, documentId);
+      const issues = await storage.getIssues(sanitizedClaimId, sanitizedDocId);
       res.json(issues);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch issues" });
