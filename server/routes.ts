@@ -1,6 +1,7 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { supabaseAdmin, isSupabaseConfigured } from "./supabase";
 import { AuditLogSchema, SessionDataSchema, IssueBundleSchema } from "@shared/schema";
 import jwt from "jsonwebtoken";
 import multer from "multer";
@@ -53,7 +54,7 @@ function writeIndex(data: { claims: any[] }) {
   fs.writeFileSync(INDEX_FILE, JSON.stringify(data, null, 2));
 }
 
-function appendAuditLog(record: any) {
+function appendAuditLogLocal(record: any) {
   ensureDataFiles();
   fs.appendFileSync(AUDIT_LOG_FILE, JSON.stringify(record) + "\n");
   auditMemory.push(record);
@@ -97,7 +98,11 @@ function sanitizeId(id: string | string[]): string | null {
   return idStr;
 }
 
-function documentExists(documentId: string, claimId?: string): boolean {
+async function documentExistsCheck(documentId: string, claimId?: string): Promise<boolean> {
+  if (isSupabaseConfigured()) {
+    return storage.documentExists(documentId, claimId);
+  }
+  
   const index = readIndex();
   for (const claim of index.claims) {
     if (claimId && claim.claimId !== claimId) {
@@ -110,12 +115,20 @@ function documentExists(documentId: string, claimId?: string): boolean {
   return false;
 }
 
-function claimExists(claimId: string): boolean {
+async function claimExistsCheck(claimId: string): Promise<boolean> {
+  if (isSupabaseConfigured()) {
+    return storage.claimExists(claimId);
+  }
+  
   const index = readIndex();
   return index.claims.some((c) => c.claimId === claimId);
 }
 
-function getClaimForDocument(documentId: string): string | null {
+async function getClaimForDocumentCheck(documentId: string): Promise<string | null> {
+  if (isSupabaseConfigured()) {
+    return storage.getClaimForDocument(documentId);
+  }
+  
   const index = readIndex();
   for (const claim of index.claims) {
     if (claim.documents?.some((doc: any) => doc.documentId === documentId)) {
@@ -173,6 +186,65 @@ async function registerWithDocEngine(documentId: string): Promise<boolean> {
   }
 }
 
+async function uploadToSupabaseStorage(filePath: string, documentId: string, userId?: string): Promise<string | null> {
+  if (!supabaseAdmin) return null;
+  
+  try {
+    const fileBuffer = fs.readFileSync(filePath);
+    const storagePath = userId ? `${userId}/${documentId}.pdf` : `public/${documentId}.pdf`;
+    
+    const { data, error } = await supabaseAdmin.storage
+      .from('documents')
+      .upload(storagePath, fileBuffer, {
+        contentType: 'application/pdf',
+        upsert: true,
+      });
+    
+    if (error) {
+      console.error('Error uploading to Supabase storage:', error);
+      return null;
+    }
+    
+    fs.unlinkSync(filePath);
+    return storagePath;
+  } catch (error) {
+    console.error('Error uploading file:', error);
+    return null;
+  }
+}
+
+async function getSupabaseFileUrl(storagePath: string): Promise<string | null> {
+  if (!supabaseAdmin) return null;
+  
+  const { data } = supabaseAdmin.storage
+    .from('documents')
+    .getPublicUrl(storagePath);
+  
+  return data.publicUrl;
+}
+
+async function downloadFromSupabase(documentId: string): Promise<Buffer | null> {
+  if (!supabaseAdmin) return null;
+  
+  const doc = await storage.getDocument(documentId);
+  if (!doc) return null;
+  
+  const docWithPath = doc as any;
+  const filePath = docWithPath.filePath || `public/${documentId}.pdf`;
+  
+  const { data, error } = await supabaseAdmin.storage
+    .from('documents')
+    .download(filePath);
+  
+  if (error) {
+    console.error('Error downloading from Supabase:', error);
+    return null;
+  }
+  
+  const arrayBuffer = await data.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -185,11 +257,19 @@ export async function registerRoutes(
   }));
 
   app.get("/api/health", (req, res) => {
-    res.json({ ok: true });
+    res.json({ 
+      ok: true,
+      supabase: isSupabaseConfigured(),
+    });
   });
 
   app.get("/api/claims", async (req, res) => {
     try {
+      if (isSupabaseConfigured()) {
+        const claims = await storage.getClaims();
+        return res.json(claims);
+      }
+      
       const index = readIndex();
       res.json(index.claims);
     } catch (error) {
@@ -203,6 +283,11 @@ export async function registerRoutes(
       
       if (!sanitizedClaimId) {
         return res.status(400).json({ error: "Invalid claim ID" });
+      }
+      
+      if (isSupabaseConfigured()) {
+        const documents = await storage.getDocumentsByClaim(sanitizedClaimId);
+        return res.json(documents);
       }
       
       const index = readIndex();
@@ -224,7 +309,6 @@ export async function registerRoutes(
     }
   });
 
-  // New endpoint: Upload PDF and auto-parse to extract claim information
   app.post("/api/documents/upload", upload.fields([
     { name: "file", maxCount: 1 },
     { name: "issues", maxCount: 1 },
@@ -242,7 +326,6 @@ export async function registerRoutes(
       
       fs.renameSync(pdfFile.path, pdfPath);
 
-      // Parse PDF to extract claim information
       let extractedInfo: ExtractedClaimInfo = {};
       let claimId: string;
       
@@ -250,14 +333,12 @@ export async function registerRoutes(
         extractedInfo = await parsePdfFile(pdfPath);
         claimId = extractedInfo.claimId || `CLM-${Date.now().toString().slice(-6)}`;
         
-        // Sanitize claimId to ensure it matches ID_PATTERN
         claimId = claimId.replace(/[^a-zA-Z0-9-_]/g, "-").toUpperCase();
         if (!ID_PATTERN.test(claimId)) {
           claimId = `CLM-${Date.now().toString().slice(-6)}`;
         }
       } catch (parseError) {
         console.error("Error parsing PDF:", parseError);
-        // Fallback: generate claim ID
         claimId = `CLM-${Date.now().toString().slice(-6)}`;
         extractedInfo = { claimId };
       }
@@ -284,8 +365,12 @@ export async function registerRoutes(
             });
           }
           
-          const issuesPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__issues.json`);
-          fs.writeFileSync(issuesPath, JSON.stringify(validated.data, null, 2));
+          if (isSupabaseConfigured()) {
+            await storage.saveIssues(claimId, documentId, validated.data);
+          } else {
+            const issuesPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__issues.json`);
+            fs.writeFileSync(issuesPath, JSON.stringify(validated.data, null, 2));
+          }
         }
       } catch (parseError) {
         fs.unlinkSync(pdfPath);
@@ -295,26 +380,48 @@ export async function registerRoutes(
         });
       }
 
-      const index = readIndex();
-      let claim = index.claims.find((c) => c.claimId === claimId);
-      
-      if (!claim) {
-        claim = { 
-          claimId, 
-          claimNumber: extractedInfo.claimNumber,
-          policyNumber: extractedInfo.policyNumber,
-          status: extractedInfo.status,
-          documents: [] 
-        };
-        index.claims.push(claim);
+      if (isSupabaseConfigured()) {
+        const storagePath = await uploadToSupabaseStorage(pdfPath, documentId);
+        
+        const claimExists = await storage.claimExists(claimId);
+        if (!claimExists) {
+          await storage.createClaim({
+            claimId,
+            claimNumber: extractedInfo.claimNumber || claimId,
+            policyNumber: extractedInfo.policyNumber,
+            status: extractedInfo.status || 'open',
+          });
+        }
+        
+        await storage.createDocument({
+          documentId,
+          claimId,
+          title: pdfFile.originalname || `${documentId}.pdf`,
+          filePath: storagePath || `public/${documentId}.pdf`,
+          fileSize: pdfFile.size,
+        });
+      } else {
+        const index = readIndex();
+        let claim = index.claims.find((c) => c.claimId === claimId);
+        
+        if (!claim) {
+          claim = { 
+            claimId, 
+            claimNumber: extractedInfo.claimNumber,
+            policyNumber: extractedInfo.policyNumber,
+            status: extractedInfo.status,
+            documents: [] 
+          };
+          index.claims.push(claim);
+        }
+
+        claim.documents.push({
+          documentId,
+          title: pdfFile.originalname || `${documentId}.pdf`,
+        });
+
+        writeIndex(index);
       }
-
-      claim.documents.push({
-        documentId,
-        title: pdfFile.originalname || `${documentId}.pdf`,
-      });
-
-      writeIndex(index);
 
       await registerWithDocEngine(documentId);
 
@@ -374,8 +481,12 @@ export async function registerRoutes(
             });
           }
           
-          const issuesPath = path.join(STORAGE_DIR, `${sanitizedClaimId}__${documentId}__issues.json`);
-          fs.writeFileSync(issuesPath, JSON.stringify(validated.data, null, 2));
+          if (isSupabaseConfigured()) {
+            await storage.saveIssues(sanitizedClaimId, documentId, validated.data);
+          } else {
+            const issuesPath = path.join(STORAGE_DIR, `${sanitizedClaimId}__${documentId}__issues.json`);
+            fs.writeFileSync(issuesPath, JSON.stringify(validated.data, null, 2));
+          }
         }
       } catch (parseError) {
         fs.unlinkSync(pdfPath);
@@ -385,20 +496,37 @@ export async function registerRoutes(
         });
       }
 
-      const index = readIndex();
-      let claim = index.claims.find((c) => c.claimId === sanitizedClaimId);
-      
-      if (!claim) {
-        claim = { claimId: sanitizedClaimId, documents: [] };
-        index.claims.push(claim);
+      if (isSupabaseConfigured()) {
+        const storagePath = await uploadToSupabaseStorage(pdfPath, documentId);
+        
+        const claimExists = await storage.claimExists(sanitizedClaimId);
+        if (!claimExists) {
+          await storage.createClaim({ claimId: sanitizedClaimId });
+        }
+        
+        await storage.createDocument({
+          documentId,
+          claimId: sanitizedClaimId,
+          title: pdfFile.originalname || `${documentId}.pdf`,
+          filePath: storagePath || `public/${documentId}.pdf`,
+          fileSize: pdfFile.size,
+        });
+      } else {
+        const index = readIndex();
+        let claim = index.claims.find((c) => c.claimId === sanitizedClaimId);
+        
+        if (!claim) {
+          claim = { claimId: sanitizedClaimId, documents: [] };
+          index.claims.push(claim);
+        }
+
+        claim.documents.push({
+          documentId,
+          title: pdfFile.originalname || `${documentId}.pdf`,
+        });
+
+        writeIndex(index);
       }
-
-      claim.documents.push({
-        documentId,
-        title: pdfFile.originalname || `${documentId}.pdf`,
-      });
-
-      writeIndex(index);
 
       await registerWithDocEngine(documentId);
 
@@ -409,15 +537,24 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/files/:documentId.pdf", (req, res) => {
+  app.get("/files/:documentId.pdf", async (req, res) => {
     const documentId = sanitizeId(req.params.documentId);
     
     if (!documentId) {
       return res.status(400).json({ error: "Invalid document ID" });
     }
     
-    if (!documentExists(documentId)) {
+    const exists = await documentExistsCheck(documentId);
+    if (!exists) {
       return res.status(404).json({ error: "Document not found" });
+    }
+    
+    if (isSupabaseConfigured()) {
+      const fileBuffer = await downloadFromSupabase(documentId);
+      if (fileBuffer) {
+        res.setHeader("Content-Type", "application/pdf");
+        return res.send(fileBuffer);
+      }
     }
     
     const filePath = path.join(STORAGE_DIR, `${documentId}.pdf`);
@@ -438,7 +575,8 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid document ID" });
       }
       
-      if (!documentExists(sanitizedDocId)) {
+      const exists = await documentExistsCheck(sanitizedDocId);
+      if (!exists) {
         return res.status(404).json({ error: "Document not found" });
       }
       
@@ -489,8 +627,14 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid claim or document ID" });
       }
       
-      if (!documentExists(sanitizedDocId, sanitizedClaimId)) {
+      const exists = await documentExistsCheck(sanitizedDocId, sanitizedClaimId);
+      if (!exists) {
         return res.status(404).json({ error: "Document not found for this claim" });
+      }
+      
+      if (isSupabaseConfigured()) {
+        const issues = await storage.getIssues(sanitizedClaimId, sanitizedDocId);
+        return res.json(issues);
       }
       
       const issuesPath = path.join(STORAGE_DIR, `${sanitizedClaimId}__${sanitizedDocId}__issues.json`);
@@ -511,8 +655,11 @@ export async function registerRoutes(
     try {
       const audit = AuditLogSchema.parse(req.body);
       
-      appendAuditLog(audit);
-      await storage.logAudit(audit);
+      if (isSupabaseConfigured()) {
+        await storage.logAudit(audit);
+      } else {
+        appendAuditLogLocal(audit);
+      }
 
       res.json({ success: true });
     } catch (error) {
@@ -520,19 +667,47 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/audit", (req, res) => {
+  app.get("/api/audit", async (req, res) => {
     try {
       const { documentId } = req.query;
+      const docId = documentId ? String(documentId) : undefined;
+      
+      if (isSupabaseConfigured()) {
+        const logs = await storage.getAuditLogs(docId);
+        return res.json(logs);
+      }
       
       let results = [...auditMemory];
       
-      if (documentId) {
-        results = results.filter((r) => r.documentId === documentId);
+      if (docId) {
+        results = results.filter((r) => r.documentId === docId);
       }
 
       res.json(results.slice(-100));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch audit logs" });
+    }
+  });
+
+  app.patch("/api/issues/:issueId/status", async (req, res) => {
+    try {
+      const sanitizedIssueId = sanitizeId(req.params.issueId);
+      
+      if (!sanitizedIssueId) {
+        return res.status(400).json({ error: "Invalid issue ID" });
+      }
+      
+      const { status } = req.body;
+      
+      if (!status || !['OPEN', 'APPLIED', 'MANUAL', 'REJECTED'].includes(status)) {
+        return res.status(400).json({ error: "Invalid status" });
+      }
+      
+      await storage.updateIssueStatus(sanitizedIssueId, status);
+      
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update issue status" });
     }
   });
 

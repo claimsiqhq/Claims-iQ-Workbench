@@ -43,6 +43,7 @@ export const IssueSchema = z.object({
   formFieldName: z.string().optional(),
   suggestedFix: SuggestedFixSchema,
   label: z.string().optional(),
+  status: z.enum(["OPEN", "APPLIED", "MANUAL", "REJECTED"]).optional(),
 });
 
 export const IssueBundleSchema = z.object({
@@ -71,6 +72,10 @@ export const ClaimSchema = z.object({
   claimNumber: z.string().optional(),
   policyNumber: z.string().optional(),
   status: z.string().optional(),
+  insuredName: z.string().optional(),
+  dateOfLoss: z.string().optional(),
+  claimAmount: z.string().optional(),
+  adjusterName: z.string().optional(),
   documents: z.array(ClaimDocumentRefSchema).optional(),
 });
 
@@ -98,12 +103,16 @@ export const AuditLogSchema = z.object({
   claimId: z.string(),
   documentId: z.string(),
   issueId: z.string(),
-  action: z.enum(["applied", "rejected", "manual_edit"]),
+  action: z.enum(["applied", "rejected", "manual_edit", "AUTO_FIX", "MANUAL_FIX", "REJECT"]),
   method: z.string().optional(),
   before: z.string().optional(),
   after: z.string().optional(),
-  user: z.string(),
-  ts: z.string(),
+  beforeValue: z.string().optional(),
+  afterValue: z.string().optional(),
+  user: z.string().optional(),
+  userId: z.string().optional(),
+  ts: z.string().optional(),
+  timestamp: z.string().optional(),
 });
 
 export type Issue = z.infer<typeof IssueSchema>;

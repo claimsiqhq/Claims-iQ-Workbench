@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { api } from "@/lib/api";
 import { useNutrientViewer } from "@/hooks/use-nutrient-viewer";
+import { useAuth } from "@/hooks/use-auth";
 import { FixEngine } from "@/lib/fix-engine";
 import type { Issue, IssueStatus, Claim, Document, SessionData, ExtractedClaimInfo } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -14,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { 
@@ -35,16 +38,20 @@ import {
   Info,
   CheckCircle,
   Clock,
-  FileCheck
+  FileCheck,
+  LogOut,
+  Settings
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function Workbench() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
+  const { user, signOut, isConfigured: isAuthConfigured, loading: authLoading } = useAuth();
   const [selectedClaimId, setSelectedClaimId] = useState<string>("");
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
-  const [username, setUsername] = useState("operator-1");
+  const username = user?.email || "operator-1";
   const [issueStatuses, setIssueStatuses] = useState<Map<string, IssueStatus>>(new Map());
   const [issueAnnotations, setIssueAnnotations] = useState<Map<string, string>>(new Map());
   const [filter, setFilter] = useState<"all" | "open" | "applied" | "rejected">("all");
@@ -587,16 +594,36 @@ export default function Workbench() {
 
             {/* Right Actions */}
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border bg-muted/50">
-                <User className="h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  placeholder="User"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="h-6 w-20 border-0 bg-transparent p-0 text-xs focus-visible:ring-0"
-                  data-testid="input-user"
-                />
-              </div>
+              {isAuthConfigured && user ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-1.5" data-testid="button-user-menu">
+                      <User className="h-3.5 w-3.5" />
+                      <span className="max-w-[120px] truncate text-xs">{user.email}</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                      Signed in as {user.email}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => signOut().then(() => setLocation('/login'))} data-testid="button-signout">
+                      <LogOut className="h-4 w-4 mr-2" />
+                      Sign Out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : isAuthConfigured ? (
+                <Button variant="outline" size="sm" onClick={() => setLocation('/login')} data-testid="button-login">
+                  <User className="h-3.5 w-3.5 mr-1.5" />
+                  Sign In
+                </Button>
+              ) : (
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border bg-muted/50">
+                  <User className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">{username}</span>
+                </div>
+              )}
 
               <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
                 <DialogTrigger asChild>
