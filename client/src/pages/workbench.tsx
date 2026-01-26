@@ -66,7 +66,9 @@ export default function Workbench() {
   const [extractedInfo, setExtractedInfo] = useState<ExtractedClaimInfo | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [uploadStage, setUploadStage] = useState<string>("");
+  const [globalDragging, setGlobalDragging] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  const dragCounterRef = useRef(0);
 
   const { data: health } = useQuery({
     queryKey: ["health"],
@@ -280,6 +282,84 @@ export default function Workbench() {
     if (pdf) setPdfFile(pdf);
     if (json) setJsonFile(json);
   };
+
+  // Global drag-and-drop handlers for full page drop zone
+  useEffect(() => {
+    const handleGlobalDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current++;
+      if (e.dataTransfer?.types.includes('Files')) {
+        setGlobalDragging(true);
+      }
+    };
+
+    const handleGlobalDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+      if (dragCounterRef.current === 0) {
+        setGlobalDragging(false);
+      }
+    };
+
+    const handleGlobalDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    };
+
+    const handleGlobalDrop = (e: DragEvent) => {
+      // Skip if dropping inside the upload dialog drop zone
+      const target = e.target as HTMLElement;
+      if (target.closest('[data-dropzone]')) {
+        return;
+      }
+      
+      e.preventDefault();
+      dragCounterRef.current = 0;
+      setGlobalDragging(false);
+      
+      const files = Array.from(e.dataTransfer?.files || []);
+      const pdf = files.find(f => f.type === "application/pdf");
+      const json = files.find(f => f.type === "application/json" || f.name.endsWith(".json"));
+      
+      if (pdf || json) {
+        if (pdf) setPdfFile(pdf);
+        if (json) setJsonFile(json);
+        setUploadDialogOpen(true);
+        
+        toast({
+          title: "File Added",
+          description: pdf ? `${pdf.name} ready for upload` : `${json?.name} added as corrections`,
+        });
+      } else if (files.length > 0) {
+        toast({
+          title: "Unsupported File Type",
+          description: "Please drop a PDF document or JSON correction file.",
+          variant: "destructive",
+        });
+      }
+    };
+
+    const handleGlobalDragEnd = () => {
+      dragCounterRef.current = 0;
+      setGlobalDragging(false);
+    };
+
+    document.addEventListener('dragenter', handleGlobalDragEnter);
+    document.addEventListener('dragleave', handleGlobalDragLeave);
+    document.addEventListener('dragover', handleGlobalDragOver);
+    document.addEventListener('drop', handleGlobalDrop);
+    document.addEventListener('dragend', handleGlobalDragEnd);
+
+    return () => {
+      document.removeEventListener('dragenter', handleGlobalDragEnter);
+      document.removeEventListener('dragleave', handleGlobalDragLeave);
+      document.removeEventListener('dragover', handleGlobalDragOver);
+      document.removeEventListener('drop', handleGlobalDrop);
+      document.removeEventListener('dragend', handleGlobalDragEnd);
+    };
+  }, [toast]);
 
   const handlePdfFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -529,7 +609,39 @@ export default function Workbench() {
   const showSchemaWarning = health?.supabase && !health?.schemaValid;
 
   return (
-    <div className="h-screen flex flex-col bg-background">
+    <div className="h-screen flex flex-col bg-background relative">
+      {/* Global Drop Overlay */}
+      {globalDragging && (
+        <div 
+          className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center"
+          data-testid="global-drop-overlay"
+        >
+          <div className="bg-card border-2 border-dashed border-primary rounded-2xl p-12 shadow-2xl max-w-md mx-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="p-6 rounded-full bg-primary/10 animate-pulse">
+                <FileUp className="h-12 w-12 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-xl font-semibold text-foreground">Drop your file here</h3>
+                <p className="text-sm text-muted-foreground mt-2">
+                  PDF documents or JSON correction files
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1 px-2 py-1 bg-muted rounded">
+                  <FileText className="h-3 w-3" />
+                  <span>.pdf</span>
+                </div>
+                <div className="flex items-center gap-1 px-2 py-1 bg-muted rounded">
+                  <FileText className="h-3 w-3" />
+                  <span>.json</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Schema Setup Warning */}
       {showSchemaWarning && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2">
@@ -667,14 +779,16 @@ export default function Workbench() {
                     {/* Drag and Drop Zone */}
                     <div
                       ref={dropZoneRef}
+                      data-dropzone
                       onDragOver={handleDragOver}
                       onDragLeave={handleDragLeave}
                       onDrop={handleDrop}
                       className={cn(
-                        "relative border-2 border-dashed rounded-lg p-8 transition-colors",
+                        "relative border-2 border-dashed rounded-lg p-8 transition-colors cursor-pointer",
                         isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/25 bg-muted/30",
                         !pdfFile && "hover:border-primary/50"
                       )}
+                      onClick={() => !pdfFile && pdfInputRef.current?.click()}
                     >
                       <div className="flex flex-col items-center justify-center text-center space-y-4">
                         <div className={cn(
