@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,8 +25,18 @@ import {
   AlertCircle,
   Loader2,
   Upload,
-  X
+  X,
+  FileUp,
+  User,
+  Sparkles,
+  ChevronRight,
+  AlertTriangle,
+  Info,
+  CheckCircle,
+  Clock,
+  FileCheck
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function Workbench() {
   const { toast } = useToast();
@@ -41,10 +51,12 @@ export default function Workbench() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [jsonFile, setJsonFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const jsonInputRef = useRef<HTMLInputElement>(null);
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [extractedInfo, setExtractedInfo] = useState<ExtractedClaimInfo | null>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
 
   const { data: claims } = useQuery({
     queryKey: ["claims"],
@@ -90,15 +102,12 @@ export default function Workbench() {
       });
       setExtractedInfo(data.extractedInfo);
       setUploadDialogOpen(false);
-      // Keep extracted info visible briefly, then clear
       setTimeout(() => {
         setPdfFile(null);
         setJsonFile(null);
         setExtractedInfo(null);
       }, 3000);
-      // Refresh claims list
       queryClient.invalidateQueries({ queryKey: ["claims"] });
-      // Select the newly uploaded document
       setSelectedClaimId(data.claimId);
       setSelectedDocumentId(data.documentId);
     },
@@ -111,24 +120,17 @@ export default function Workbench() {
     },
   });
 
-  // Determine document URL or instant config
   const documentUrl = useMemo(() => {
     if (!isDocumentLoaded || !selectedDocumentId) return undefined;
-    
-    // If we have session data with instant mode, use that (instant mode enables editing)
     if (sessionData?.instant && sessionData?.jwt && sessionData?.serverUrl) {
-      return undefined; // Will use instant mode instead
+      return undefined;
     }
-    
-    // Otherwise, use direct PDF URL (read-only mode)
     const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
     return `${baseUrl}/files/${selectedDocumentId}.pdf`;
   }, [isDocumentLoaded, selectedDocumentId, sessionData]);
 
   const instantConfig = useMemo(() => {
     if (!isDocumentLoaded || !selectedDocumentId || !sessionData) return undefined;
-    
-    // Use instant mode if we have all required fields (enables live editing)
     if (sessionData.instant && sessionData.jwt && sessionData.serverUrl) {
       return {
         serverUrl: sessionData.serverUrl,
@@ -136,7 +138,6 @@ export default function Workbench() {
         jwt: sessionData.jwt,
       };
     }
-    
     return undefined;
   }, [isDocumentLoaded, selectedDocumentId, sessionData]);
 
@@ -145,7 +146,6 @@ export default function Workbench() {
     instant: instantConfig,
   });
 
-  // Reset document loaded state when document selection changes
   useEffect(() => {
     setIsDocumentLoaded(false);
     setSessionData(null);
@@ -205,17 +205,18 @@ export default function Workbench() {
   };
 
   const getIssueColor = (severity: string) => {
+    if (!instance) return null;
     switch (severity) {
       case "critical":
-        return new instance.Color(255, 0, 0);
+        return new instance.Color(239, 68, 68);
       case "high":
-        return new instance.Color(255, 165, 0);
+        return new instance.Color(249, 115, 22);
       case "medium":
-        return new instance.Color(255, 215, 0);
+        return new instance.Color(234, 179, 8);
       case "low":
-        return new instance.Color(100, 149, 237);
+        return new instance.Color(59, 130, 246);
       default:
-        return new instance.Color(128, 128, 128);
+        return new instance.Color(107, 114, 128);
     }
   };
 
@@ -233,6 +234,26 @@ export default function Workbench() {
       title: "Document Loading",
       description: "Loading document and issues...",
     });
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    const pdf = files.find(f => f.type === "application/pdf");
+    const json = files.find(f => f.type === "application/json" || f.name.endsWith(".json"));
+    if (pdf) setPdfFile(pdf);
+    if (json) setJsonFile(json);
   };
 
   const handlePdfFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -431,253 +452,351 @@ export default function Workbench() {
 
   const getStatusBadge = (issueId: string) => {
     const status = issueStatuses.get(issueId) || "OPEN";
-    const variants: Record<IssueStatus, { variant: any; label: string }> = {
-      OPEN: { variant: "default", label: "Open" },
-      APPLIED: { variant: "default", label: "Applied" },
-      MANUAL: { variant: "secondary", label: "Manual" },
-      REJECTED: { variant: "outline", label: "Rejected" },
+    const variants: Record<IssueStatus, { variant: any; label: string; icon: any }> = {
+      OPEN: { variant: "default", label: "Open", icon: Clock },
+      APPLIED: { variant: "default", label: "Applied", icon: CheckCircle },
+      MANUAL: { variant: "secondary", label: "Manual", icon: Edit3 },
+      REJECTED: { variant: "outline", label: "Rejected", icon: XCircle },
     };
     return variants[status];
   };
 
+  const getSeverityIcon = (severity: string) => {
+    switch (severity) {
+      case "critical":
+        return AlertTriangle;
+      case "high":
+        return AlertCircle;
+      case "medium":
+        return Info;
+      case "low":
+        return Info;
+      default:
+        return AlertCircle;
+    }
+  };
+
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
+      case "critical":
+        return "text-red-600 bg-red-50 border-red-200";
+      case "high":
+        return "text-orange-600 bg-orange-50 border-orange-200";
+      case "medium":
+        return "text-yellow-600 bg-yellow-50 border-yellow-200";
+      case "low":
+        return "text-blue-600 bg-blue-50 border-blue-200";
+      default:
+        return "text-gray-600 bg-gray-50 border-gray-200";
+    }
+  };
+
+  const issueCounts = useMemo(() => {
+    if (!issueBundle?.issues) return { all: 0, open: 0, applied: 0, rejected: 0 };
+    return {
+      all: issueBundle.issues.length,
+      open: issueBundle.issues.filter(i => (issueStatuses.get(i.issueId) || "OPEN") === "OPEN").length,
+      applied: issueBundle.issues.filter(i => issueStatuses.get(i.issueId) === "APPLIED").length,
+      rejected: issueBundle.issues.filter(i => issueStatuses.get(i.issueId) === "REJECTED").length,
+    };
+  }, [issueBundle, issueStatuses]);
+
   return (
     <div className="h-screen flex flex-col bg-background">
-      <div className="border-b bg-card px-6 py-3">
-        <div className="flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <FileText className="h-5 w-5 text-primary" />
-            <h1 className="text-lg font-display font-semibold">Claims File Correction Workbench</h1>
-          </div>
-          
-          <Separator orientation="vertical" className="h-8" />
-          
-          <Select value={selectedClaimId} onValueChange={setSelectedClaimId} data-testid="select-claim">
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Select Claim" />
-            </SelectTrigger>
-            <SelectContent>
-              {claims?.map((claim) => (
-                <SelectItem key={claim.claimId} value={claim.claimId} data-testid={`claim-${claim.claimId}`}>
-                  {claim.claimNumber}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      {/* Professional Header */}
+      <header className="border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60">
+        <div className="px-6 py-4">
+          <div className="flex items-center justify-between gap-6">
+            {/* Left: Branding and Navigation */}
+            <div className="flex items-center gap-6 min-w-0 flex-1">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <FileText className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <h1 className="text-lg font-display font-semibold text-foreground">Claims Correction Workbench</h1>
+                  <p className="text-xs text-muted-foreground hidden sm:block">Document review and correction platform</p>
+                </div>
+              </div>
 
-          <Select 
-            value={selectedDocumentId} 
-            onValueChange={setSelectedDocumentId} 
-            disabled={!selectedClaimId}
-            data-testid="select-document"
-          >
-            <SelectTrigger className="w-[240px]">
-              <SelectValue placeholder="Select Document" />
-            </SelectTrigger>
-            <SelectContent>
-              {documents?.map((doc) => (
-                <SelectItem key={doc.documentId} value={doc.documentId} data-testid={`document-${doc.documentId}`}>
-                  {doc.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+              <Separator orientation="vertical" className="h-8" />
 
-          <Button 
-            onClick={handleLoadDocument} 
-            disabled={!selectedClaimId || !selectedDocumentId || isDocumentLoaded}
-            data-testid="button-load"
-          >
-            Load Document
-          </Button>
+              {/* Document Selection */}
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="flex-1 min-w-0">
+                  <Label className="text-xs text-muted-foreground mb-1.5 block">Claim</Label>
+                  <Select value={selectedClaimId} onValueChange={setSelectedClaimId} data-testid="select-claim">
+                    <SelectTrigger className="w-full min-w-[180px]">
+                      <SelectValue placeholder="Select claim..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {claims?.map((claim) => (
+                        <SelectItem key={claim.claimId} value={claim.claimId} data-testid={`claim-${claim.claimId}`}>
+                          {claim.claimNumber || claim.claimId}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-          <Separator orientation="vertical" className="h-8" />
+                <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-6" />
 
-          <Input
-            placeholder="User ID"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="w-[140px]"
-            data-testid="input-user"
-          />
+                <div className="flex-1 min-w-0">
+                  <Label className="text-xs text-muted-foreground mb-1.5 block">Document</Label>
+                  <Select 
+                    value={selectedDocumentId} 
+                    onValueChange={setSelectedDocumentId} 
+                    disabled={!selectedClaimId}
+                    data-testid="select-document"
+                  >
+                    <SelectTrigger className="w-full min-w-[200px]">
+                      <SelectValue placeholder="Select document..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {documents?.map((doc) => (
+                        <SelectItem key={doc.documentId} value={doc.documentId} data-testid={`document-${doc.documentId}`}>
+                          {doc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-          <div className="ml-auto flex gap-2">
-            <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" data-testid="button-upload">
-                  <Upload className="h-4 w-4 mr-2" />
-                  Upload Document
+                <Button 
+                  onClick={handleLoadDocument} 
+                  disabled={!selectedClaimId || !selectedDocumentId || isDocumentLoaded}
+                  data-testid="button-load"
+                  className="mt-6"
+                >
+                  <FileCheck className="h-4 w-4 mr-2" />
+                  Load
                 </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[600px]">
-                <DialogHeader>
-                  <DialogTitle>Upload Document and Corrections</DialogTitle>
-                  <DialogDescription>
-                    Upload a PDF document. The system will automatically parse the first few pages to extract claim information using AI. Optionally upload a JSON file with corrections to apply.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="pdf-file">PDF Document (Required)</Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="pdf-file"
-                        type="file"
-                        accept=".pdf,application/pdf"
-                        onChange={handlePdfFileChange}
-                        ref={pdfInputRef}
-                        className="flex-1"
-                        data-testid="input-pdf"
-                      />
+              </div>
+            </div>
+
+            {/* Right: Actions */}
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-md border bg-muted/50">
+                <User className="h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="User ID"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="h-7 w-24 border-0 bg-transparent p-0 text-sm focus-visible:ring-0"
+                  data-testid="input-user"
+                />
+              </div>
+
+              <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" data-testid="button-upload" className="gap-2">
+                    <Upload className="h-4 w-4" />
+                    <span className="hidden sm:inline">Upload</span>
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <Sparkles className="h-5 w-5 text-primary" />
+                      Upload & Parse Document
+                    </DialogTitle>
+                    <DialogDescription>
+                      Upload a PDF document. Our AI will automatically extract claim information from the first few pages.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-6 py-4">
+                    {/* Drag and Drop Zone */}
+                    <div
+                      ref={dropZoneRef}
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                      className={cn(
+                        "relative border-2 border-dashed rounded-lg p-8 transition-colors",
+                        isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/25 bg-muted/30",
+                        !pdfFile && "hover:border-primary/50"
+                      )}
+                    >
+                      <div className="flex flex-col items-center justify-center text-center space-y-4">
+                        <div className={cn(
+                          "p-4 rounded-full transition-colors",
+                          isDragging ? "bg-primary/10" : "bg-muted"
+                        )}>
+                          <FileUp className={cn(
+                            "h-8 w-8 transition-colors",
+                            isDragging ? "text-primary" : "text-muted-foreground"
+                          )} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">
+                            {pdfFile ? pdfFile.name : "Drag & drop PDF here, or click to browse"}
+                          </p>
+                          {!pdfFile && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              PDF files up to 25MB
+                            </p>
+                          )}
+                        </div>
+                        {!pdfFile && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => pdfInputRef.current?.click()}
+                            className="mt-2"
+                          >
+                            Browse Files
+                          </Button>
+                        )}
+                        <Input
+                          ref={pdfInputRef}
+                          type="file"
+                          accept=".pdf,application/pdf"
+                          onChange={handlePdfFileChange}
+                          className="hidden"
+                          data-testid="input-pdf"
+                        />
+                      </div>
                       {pdfFile && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={handleRemovePdf}
-                          className="h-9 w-9"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
+                        <div className="absolute top-2 right-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={handleRemovePdf}
+                            className="h-8 w-8"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
                       )}
                     </div>
-                    {pdfFile && (
-                      <p className="text-sm text-muted-foreground">
-                        Selected: {pdfFile.name} ({(pdfFile.size / 1024 / 1024).toFixed(2)} MB)
-                      </p>
-                    )}
-                  </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="json-file">Corrections JSON (Optional)</Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="json-file"
-                        type="file"
-                        accept=".json,application/json"
-                        onChange={handleJsonFileChange}
-                        ref={jsonInputRef}
-                        className="flex-1"
-                        data-testid="input-json"
-                      />
-                      {jsonFile && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={handleRemoveJson}
-                          className="h-9 w-9"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                    {jsonFile && (
-                      <p className="text-sm text-muted-foreground">
-                        Selected: {jsonFile.name} ({(jsonFile.size / 1024).toFixed(2)} KB)
-                      </p>
-                    )}
-                  </div>
-
-                  {extractedInfo && (
-                    <div className="p-4 bg-muted rounded-lg space-y-2">
-                      <h4 className="font-semibold text-sm">Extracted Information</h4>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        {extractedInfo.claimId && (
-                          <div>
-                            <span className="text-muted-foreground">Claim ID:</span>
-                            <span className="ml-2 font-mono">{extractedInfo.claimId}</span>
-                          </div>
-                        )}
-                        {extractedInfo.claimNumber && (
-                          <div>
-                            <span className="text-muted-foreground">Claim Number:</span>
-                            <span className="ml-2">{extractedInfo.claimNumber}</span>
-                          </div>
-                        )}
-                        {extractedInfo.policyNumber && (
-                          <div>
-                            <span className="text-muted-foreground">Policy Number:</span>
-                            <span className="ml-2">{extractedInfo.policyNumber}</span>
-                          </div>
-                        )}
-                        {extractedInfo.insuredName && (
-                          <div>
-                            <span className="text-muted-foreground">Insured Name:</span>
-                            <span className="ml-2">{extractedInfo.insuredName}</span>
-                          </div>
-                        )}
-                        {extractedInfo.dateOfLoss && (
-                          <div>
-                            <span className="text-muted-foreground">Date of Loss:</span>
-                            <span className="ml-2">{extractedInfo.dateOfLoss}</span>
-                          </div>
-                        )}
-                        {extractedInfo.claimAmount && (
-                          <div>
-                            <span className="text-muted-foreground">Claim Amount:</span>
-                            <span className="ml-2">{extractedInfo.claimAmount}</span>
-                          </div>
-                        )}
-                        {extractedInfo.status && (
-                          <div>
-                            <span className="text-muted-foreground">Status:</span>
-                            <span className="ml-2">{extractedInfo.status}</span>
-                          </div>
-                        )}
-                        {extractedInfo.adjusterName && (
-                          <div>
-                            <span className="text-muted-foreground">Adjuster:</span>
-                            <span className="ml-2">{extractedInfo.adjusterName}</span>
-                          </div>
+                    {/* JSON File Upload */}
+                    <div className="space-y-2">
+                      <Label htmlFor="json-file" className="text-sm font-medium">Corrections JSON (Optional)</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id="json-file"
+                          type="file"
+                          accept=".json,application/json"
+                          onChange={handleJsonFileChange}
+                          ref={jsonInputRef}
+                          className="flex-1"
+                          data-testid="input-json"
+                        />
+                        {jsonFile && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={handleRemoveJson}
+                            className="h-9 w-9"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
                         )}
                       </div>
+                      {jsonFile && (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <FileText className="h-3 w-3" />
+                          {jsonFile.name} ({(jsonFile.size / 1024).toFixed(2)} KB)
+                        </p>
+                      )}
                     </div>
-                  )}
 
-                  <Button
-                    onClick={handleUpload}
-                    disabled={!pdfFile || uploadMutation.isPending}
-                    className="w-full"
-                    data-testid="button-upload-submit"
-                  >
-                    {uploadMutation.isPending ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Parsing and Uploading...
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="h-4 w-4 mr-2" />
-                        Upload & Parse
-                      </>
+                    {/* Extracted Info */}
+                    {extractedInfo && (
+                      <Card className="border-primary/20 bg-primary/5">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <Sparkles className="h-4 w-4 text-primary" />
+                            Extracted Information
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-2 gap-3 text-sm">
+                            {Object.entries(extractedInfo).filter(([_, v]) => v).map(([key, value]) => (
+                              <div key={key} className="flex flex-col">
+                                <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                                  {key.replace(/([A-Z])/g, " $1").trim()}
+                                </span>
+                                <span className={cn(
+                                  "mt-0.5 font-medium",
+                                  key === "claimId" && "font-mono"
+                                )}>
+                                  {String(value)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
                     )}
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-            
-            <Button onClick={handleSave} variant="outline" disabled={!instance} data-testid="button-save">
-              <Save className="h-4 w-4 mr-2" />
-              Save
-            </Button>
-            <Button onClick={handleDownload} variant="outline" disabled={!instance} data-testid="button-download">
-              <Download className="h-4 w-4 mr-2" />
-              Download PDF
-            </Button>
+
+                    <Button
+                      onClick={handleUpload}
+                      disabled={!pdfFile || uploadMutation.isPending}
+                      className="w-full"
+                      data-testid="button-upload-submit"
+                      size="lg"
+                    >
+                      {uploadMutation.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Parsing with AI...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-4 w-4 mr-2" />
+                          Upload & Parse Document
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+              
+              <Button onClick={handleSave} variant="outline" disabled={!instance} data-testid="button-save" className="gap-2">
+                <Save className="h-4 w-4" />
+                <span className="hidden sm:inline">Save</span>
+              </Button>
+              <Button onClick={handleDownload} variant="outline" disabled={!instance} data-testid="button-download" className="gap-2">
+                <Download className="h-4 w-4" />
+                <span className="hidden sm:inline">Download</span>
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
+      </header>
 
+      {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        <div className="w-80 border-r bg-card flex flex-col">
-          <div className="p-4 border-b">
-            <h2 className="font-semibold mb-3">Issues</h2>
+        {/* Issues Sidebar */}
+        <aside className="w-96 border-r bg-card flex flex-col">
+          <div className="p-5 border-b bg-muted/30">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-semibold">Issues</h2>
+              {issueBundle && (
+                <Badge variant="secondary" className="text-xs">
+                  {filteredIssues.length} of {issueCounts.all}
+                </Badge>
+              )}
+            </div>
             <Tabs value={filter} onValueChange={(v) => setFilter(v as any)} className="w-full">
-              <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="all" className="text-xs" data-testid="filter-all">All</TabsTrigger>
-                <TabsTrigger value="open" className="text-xs" data-testid="filter-open">Open</TabsTrigger>
-                <TabsTrigger value="applied" className="text-xs" data-testid="filter-applied">Applied</TabsTrigger>
-                <TabsTrigger value="rejected" className="text-xs" data-testid="filter-rejected">Rejected</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-4 h-9">
+                <TabsTrigger value="all" className="text-xs" data-testid="filter-all">
+                  All ({issueCounts.all})
+                </TabsTrigger>
+                <TabsTrigger value="open" className="text-xs" data-testid="filter-open">
+                  Open ({issueCounts.open})
+                </TabsTrigger>
+                <TabsTrigger value="applied" className="text-xs" data-testid="filter-applied">
+                  Applied ({issueCounts.applied})
+                </TabsTrigger>
+                <TabsTrigger value="rejected" className="text-xs" data-testid="filter-rejected">
+                  Rejected ({issueCounts.rejected})
+                </TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -685,117 +804,177 @@ export default function Workbench() {
           <ScrollArea className="flex-1">
             <div className="p-4 space-y-3">
               {!isDocumentLoaded ? (
-                <p className="text-sm text-muted-foreground text-center py-8">
-                  Load a document to view issues
-                </p>
+                <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                  <div className="p-4 rounded-full bg-muted mb-4">
+                    <FileText className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm font-medium text-foreground mb-1">No document loaded</p>
+                  <p className="text-xs text-muted-foreground">
+                    Select a claim and document, then click Load to view issues
+                  </p>
+                </div>
               ) : filteredIssues.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">
-                  No issues found
-                </p>
+                <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                  <div className="p-4 rounded-full bg-green-50 dark:bg-green-950 mb-4">
+                    <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400" />
+                  </div>
+                  <p className="text-sm font-medium text-foreground mb-1">No issues found</p>
+                  <p className="text-xs text-muted-foreground">
+                    {filter === "all" 
+                      ? "This document has no issues to correct"
+                      : `No ${filter} issues found`}
+                  </p>
+                </div>
               ) : (
                 filteredIssues.map((issue) => {
                   const statusInfo = getStatusBadge(issue.issueId);
                   const status = issueStatuses.get(issue.issueId) || "OPEN";
+                  const StatusIcon = statusInfo.icon;
+                  const SeverityIcon = getSeverityIcon(issue.severity);
                   
                   return (
                     <Card 
                       key={issue.issueId} 
-                      className="p-3 cursor-pointer hover:bg-accent transition-colors"
+                      className={cn(
+                        "cursor-pointer transition-all hover:shadow-md border-l-4",
+                        status === "OPEN" && "border-l-primary",
+                        status === "APPLIED" && "border-l-green-500",
+                        status === "REJECTED" && "border-l-gray-400"
+                      )}
                       onClick={() => handleIssueClick(issue)}
                       data-testid={`issue-${issue.issueId}`}
                     >
-                      <div className="flex items-start justify-between mb-2">
-                        <Badge variant={statusInfo.variant} className="text-xs" data-testid={`status-${issue.issueId}`}>
-                          {statusInfo.label}
-                        </Badge>
-                        <Badge variant={issue.severity === "critical" ? "destructive" : "outline"} className="text-xs">
-                          {issue.severity}
-                        </Badge>
-                      </div>
-                      
-                      <h3 className="font-medium text-sm mb-1">{issue.label || issue.type}</h3>
-                      <p className="text-xs text-muted-foreground mb-2">
-                        Page {issue.pageIndex + 1} • {Math.round(issue.confidence * 100)}% confidence
-                      </p>
-
-                      {issue.foundValue && issue.expectedValue && (
-                        <div className="text-xs space-y-1 mb-3">
-                          <div className="flex gap-1">
-                            <span className="text-muted-foreground">Found:</span>
-                            <span className="font-mono">{issue.foundValue}</span>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <SeverityIcon className={cn("h-4 w-4 flex-shrink-0", getSeverityColor(issue.severity).split(" ")[0])} />
+                            <Badge 
+                              variant={statusInfo.variant} 
+                              className="text-xs flex items-center gap-1" 
+                              data-testid={`status-${issue.issueId}`}
+                            >
+                              <StatusIcon className="h-3 w-3" />
+                              {statusInfo.label}
+                            </Badge>
                           </div>
-                          <div className="flex gap-1">
-                            <span className="text-muted-foreground">Expected:</span>
-                            <span className="font-mono">{issue.expectedValue}</span>
-                          </div>
+                          <Badge 
+                            variant={issue.severity === "critical" ? "destructive" : "outline"} 
+                            className={cn("text-xs", getSeverityColor(issue.severity))}
+                          >
+                            {issue.severity}
+                          </Badge>
                         </div>
-                      )}
+                        <CardTitle className="text-sm mt-2 line-clamp-2">
+                          {issue.label || issue.type}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="pt-0 space-y-3">
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <FileText className="h-3 w-3" />
+                            Page {issue.pageIndex + 1}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Info className="h-3 w-3" />
+                            {Math.round(issue.confidence * 100)}% confidence
+                          </span>
+                        </div>
 
-                      {status === "OPEN" && (
-                        <div className="flex gap-1 mt-2">
-                          {issue.suggestedFix.strategy === "auto" && (
+                        {issue.foundValue && issue.expectedValue && (
+                          <div className="space-y-2 p-3 rounded-md bg-muted/50 border">
+                            <div className="flex items-start gap-2">
+                              <span className="text-xs text-muted-foreground min-w-[60px]">Found:</span>
+                              <span className="text-xs font-mono flex-1 break-all">{issue.foundValue}</span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <span className="text-xs text-muted-foreground min-w-[60px]">Expected:</span>
+                              <span className="text-xs font-mono flex-1 break-all text-green-600 dark:text-green-400">{issue.expectedValue}</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {status === "OPEN" && (
+                          <div className="flex gap-2 pt-2">
+                            {issue.suggestedFix.strategy === "auto" && (
+                              <Button
+                                size="sm"
+                                className="h-8 text-xs flex-1"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleApplySuggestedFix(issue);
+                                }}
+                                data-testid={`button-apply-${issue.issueId}`}
+                              >
+                                <CheckCircle2 className="h-3 w-3 mr-1.5" />
+                                Apply Fix
+                              </Button>
+                            )}
                             <Button
                               size="sm"
-                              className="h-7 text-xs flex-1"
+                              variant="outline"
+                              className="h-8 text-xs px-3"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleApplySuggestedFix(issue);
+                                handleManualEdit(issue);
                               }}
-                              data-testid={`button-apply-${issue.issueId}`}
+                              data-testid={`button-manual-${issue.issueId}`}
                             >
-                              <CheckCircle2 className="h-3 w-3 mr-1" />
-                              Apply Fix
+                              <Edit3 className="h-3 w-3" />
                             </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 text-xs"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleManualEdit(issue);
-                            }}
-                            data-testid={`button-manual-${issue.issueId}`}
-                          >
-                            <Edit3 className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 text-xs"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleReject(issue);
-                            }}
-                            data-testid={`button-reject-${issue.issueId}`}
-                          >
-                            <XCircle className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs px-3"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleReject(issue);
+                              }}
+                              data-testid={`button-reject-${issue.issueId}`}
+                            >
+                              <XCircle className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
+                      </CardContent>
                     </Card>
                   );
                 })
               )}
             </div>
           </ScrollArea>
-        </div>
+        </aside>
 
-        <div className="flex-1 bg-muted/30 relative">
+        {/* Document Viewer */}
+        <main className="flex-1 bg-muted/20 relative">
           {viewerLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
-              <div className="flex flex-col items-center gap-2">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="text-sm text-muted-foreground">Loading document viewer...</p>
+            <div className="absolute inset-0 flex items-center justify-center bg-background/90 backdrop-blur-sm z-10">
+              <div className="flex flex-col items-center gap-4">
+                <div className="relative">
+                  <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
+                  <div className="relative p-4 rounded-full bg-primary/10">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-foreground mb-1">Loading document viewer</p>
+                  <p className="text-xs text-muted-foreground">Please wait...</p>
+                </div>
               </div>
             </div>
           )}
           
           {!isDocumentLoaded ? (
-            <div className="h-full flex items-center justify-center">
-              <div className="text-center space-y-2">
-                <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto" />
-                <p className="text-muted-foreground">Select a claim and document to begin</p>
+            <div className="h-full flex items-center justify-center p-8">
+              <div className="text-center space-y-4 max-w-md">
+                <div className="p-6 rounded-full bg-muted mx-auto w-fit">
+                  <FileText className="h-12 w-12 text-muted-foreground" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground mb-2">Ready to begin</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Select a claim and document from the header, then click Load to start reviewing and correcting issues.
+                  </p>
+                </div>
               </div>
             </div>
           ) : (
@@ -805,7 +984,7 @@ export default function Workbench() {
               data-testid="viewer-container"
             />
           )}
-        </div>
+        </main>
       </div>
     </div>
   );
