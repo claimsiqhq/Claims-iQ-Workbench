@@ -515,95 +515,94 @@ export default function Workbench() {
 
   return (
     <div className="h-screen flex flex-col bg-background">
-      {/* Professional Header */}
-      <header className="border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60">
-        <div className="px-6 py-4">
-          <div className="flex items-center justify-between gap-6">
-            {/* Left: Branding and Navigation */}
-            <div className="flex items-center gap-6 min-w-0 flex-1">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <FileText className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-display font-semibold text-foreground">Claims Correction Workbench</h1>
-                  <p className="text-xs text-muted-foreground hidden sm:block">Document review and correction platform</p>
-                </div>
+      {/* Header */}
+      <header className="border-b bg-card">
+        <div className="px-4 py-3">
+          <div className="flex items-center gap-4">
+            {/* Branding */}
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="p-1.5 rounded-md bg-primary/10">
+                <FileText className="h-4 w-4 text-primary" />
               </div>
-
-              <Separator orientation="vertical" className="h-8" />
-
-              {/* Document Selection */}
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className="flex-1 min-w-0">
-                  <Label className="text-xs text-muted-foreground mb-1.5 block">Claim</Label>
-                  <Select value={selectedClaimId} onValueChange={setSelectedClaimId} data-testid="select-claim">
-                    <SelectTrigger className="w-full min-w-[180px]">
-                      <SelectValue placeholder="Select claim..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {claims?.map((claim) => (
-                        <SelectItem key={claim.claimId} value={claim.claimId} data-testid={`claim-${claim.claimId}`}>
-                          {claim.claimNumber || claim.claimId}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-6" />
-
-                <div className="flex-1 min-w-0">
-                  <Label className="text-xs text-muted-foreground mb-1.5 block">Document</Label>
-                  <Select 
-                    value={selectedDocumentId} 
-                    onValueChange={setSelectedDocumentId} 
-                    disabled={!selectedClaimId}
-                    data-testid="select-document"
-                  >
-                    <SelectTrigger className="w-full min-w-[200px]">
-                      <SelectValue placeholder="Select document..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {documents?.map((doc) => (
-                        <SelectItem key={doc.documentId} value={doc.documentId} data-testid={`document-${doc.documentId}`}>
-                          {doc.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <Button 
-                  onClick={handleLoadDocument} 
-                  disabled={!selectedClaimId || !selectedDocumentId || isDocumentLoaded}
-                  data-testid="button-load"
-                  className="mt-6"
-                >
-                  <FileCheck className="h-4 w-4 mr-2" />
-                  Load
-                </Button>
-              </div>
+              <h1 className="text-sm font-semibold text-foreground hidden md:block">Claims Workbench</h1>
             </div>
 
-            {/* Right: Actions */}
-            <div className="flex items-center gap-3 flex-shrink-0">
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-md border bg-muted/50">
-                <User className="h-4 w-4 text-muted-foreground" />
+            <Separator orientation="vertical" className="h-6" />
+
+            {/* Document Selection Row */}
+            <div className="flex items-center gap-2">
+              <div className="w-40">
+                <Label className="text-xs text-muted-foreground mb-1 block">Claim</Label>
+                <Select value={selectedClaimId} onValueChange={setSelectedClaimId} data-testid="select-claim">
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Select claim..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {claims?.map((claim) => (
+                      <SelectItem key={claim.claimId} value={claim.claimId} data-testid={`claim-${claim.claimId}`}>
+                        {claim.claimNumber || claim.claimId}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mt-5" />
+
+              <div className="w-48">
+                <Label className="text-xs text-muted-foreground mb-1 block">Document</Label>
+                <Select 
+                  value={selectedDocumentId} 
+                  onValueChange={setSelectedDocumentId} 
+                  disabled={!selectedClaimId}
+                  data-testid="select-document"
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Select document..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {documents?.map((doc) => (
+                      <SelectItem key={doc.documentId} value={doc.documentId} data-testid={`document-${doc.documentId}`}>
+                        {doc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Button 
+                onClick={handleLoadDocument} 
+                disabled={!selectedClaimId || !selectedDocumentId || isDocumentLoaded}
+                data-testid="button-load"
+                size="sm"
+                className="mt-5"
+              >
+                <FileCheck className="h-3.5 w-3.5 mr-1.5" />
+                Load
+              </Button>
+            </div>
+
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* Right Actions */}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border bg-muted/50">
+                <User className="h-3.5 w-3.5 text-muted-foreground" />
                 <Input
-                  placeholder="User ID"
+                  placeholder="User"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="h-7 w-24 border-0 bg-transparent p-0 text-sm focus-visible:ring-0"
+                  className="h-6 w-20 border-0 bg-transparent p-0 text-xs focus-visible:ring-0"
                   data-testid="input-user"
                 />
               </div>
 
               <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
                 <DialogTrigger asChild>
-                  <Button variant="outline" data-testid="button-upload" className="gap-2">
-                    <Upload className="h-4 w-4" />
-                    <span className="hidden sm:inline">Upload</span>
+                  <Button variant="outline" size="sm" data-testid="button-upload">
+                    <Upload className="h-3.5 w-3.5 mr-1.5" />
+                    Upload
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
@@ -779,13 +778,13 @@ export default function Workbench() {
                 </DialogContent>
               </Dialog>
               
-              <Button onClick={handleSave} variant="outline" disabled={!instance} data-testid="button-save" className="gap-2">
-                <Save className="h-4 w-4" />
-                <span className="hidden sm:inline">Save</span>
+              <Button onClick={handleSave} variant="outline" size="sm" disabled={!instance} data-testid="button-save">
+                <Save className="h-3.5 w-3.5 mr-1.5" />
+                Save
               </Button>
-              <Button onClick={handleDownload} variant="outline" disabled={!instance} data-testid="button-download" className="gap-2">
-                <Download className="h-4 w-4" />
-                <span className="hidden sm:inline">Download</span>
+              <Button onClick={handleDownload} variant="outline" size="sm" disabled={!instance} data-testid="button-download">
+                <Download className="h-3.5 w-3.5 mr-1.5" />
+                Download
               </Button>
             </div>
           </div>
