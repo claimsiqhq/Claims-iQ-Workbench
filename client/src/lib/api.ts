@@ -2,7 +2,19 @@ import type { Claim, Document, IssueBundle, AuditLog, SessionData, ExtractedClai
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
+export interface HealthStatus {
+  ok: boolean;
+  supabase: boolean;
+  schemaValid: boolean;
+}
+
 export const api = {
+  async getHealth(): Promise<HealthStatus> {
+    const res = await fetch(`${API_BASE}/api/health`);
+    if (!res.ok) throw new Error("Failed to fetch health status");
+    return res.json();
+  },
+
   async getClaims(): Promise<Claim[]> {
     const res = await fetch(`${API_BASE}/api/claims`);
     if (!res.ok) throw new Error("Failed to fetch claims");

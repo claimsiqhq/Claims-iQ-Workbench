@@ -256,10 +256,22 @@ export async function registerRoutes(
     credentials: true,
   }));
 
-  app.get("/api/health", (req, res) => {
+  app.get("/api/health", async (req, res) => {
+    let schemaValid = true;
+    
+    if (isSupabaseConfigured() && supabaseAdmin) {
+      try {
+        const { error } = await supabaseAdmin.from('claims').select('claim_id').limit(1);
+        schemaValid = !error || error.code !== 'PGRST205';
+      } catch {
+        schemaValid = false;
+      }
+    }
+    
     res.json({ 
       ok: true,
       supabase: isSupabaseConfigured(),
+      schemaValid,
     });
   });
 

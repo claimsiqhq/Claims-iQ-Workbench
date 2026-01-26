@@ -25,6 +25,25 @@ export interface IStorage {
 }
 
 export class SupabaseStorage implements IStorage {
+  private schemaValid: boolean | null = null;
+  
+  private async checkSchema(): Promise<boolean> {
+    if (this.schemaValid !== null) return this.schemaValid;
+    if (!supabaseAdmin) return false;
+    
+    try {
+      const { error } = await supabaseAdmin.from('claims').select('claim_id').limit(1);
+      this.schemaValid = !error || error.code !== 'PGRST205';
+      if (!this.schemaValid) {
+        console.error('Supabase schema not found. Please run supabase/schema.sql in your Supabase SQL Editor.');
+      }
+      return this.schemaValid;
+    } catch {
+      this.schemaValid = false;
+      return false;
+    }
+  }
+  
   async getUser(id: string): Promise<User | undefined> {
     if (!supabaseAdmin) return undefined;
     

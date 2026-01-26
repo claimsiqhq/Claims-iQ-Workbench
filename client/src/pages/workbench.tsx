@@ -68,6 +68,12 @@ export default function Workbench() {
   const [uploadStage, setUploadStage] = useState<string>("");
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
+  const { data: health } = useQuery({
+    queryKey: ["health"],
+    queryFn: api.getHealth,
+    refetchOnWindowFocus: false,
+  });
+
   const { data: claims } = useQuery({
     queryKey: ["claims"],
     queryFn: api.getClaims,
@@ -520,8 +526,23 @@ export default function Workbench() {
     };
   }, [issueBundle, issueStatuses]);
 
+  const showSchemaWarning = health?.supabase && !health?.schemaValid;
+
   return (
     <div className="h-screen flex flex-col bg-background">
+      {/* Schema Setup Warning */}
+      {showSchemaWarning && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2">
+          <div className="flex items-center gap-2 text-amber-800">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span className="text-sm">
+              <strong>Database setup required:</strong> Run the SQL schema in your Supabase SQL Editor. 
+              Open <code className="bg-amber-100 px-1 rounded">supabase/schema.sql</code> and execute it in your Supabase dashboard.
+            </span>
+          </div>
+        </div>
+      )}
+      
       {/* Header */}
       <header className="border-b bg-card">
         <div className="px-4 py-3">
