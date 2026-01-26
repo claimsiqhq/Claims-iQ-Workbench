@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
@@ -56,6 +57,8 @@ export default function Workbench() {
   const jsonInputRef = useRef<HTMLInputElement>(null);
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [extractedInfo, setExtractedInfo] = useState<ExtractedClaimInfo | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [uploadStage, setUploadStage] = useState<string>("");
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
   const { data: claims } = useQuery({
@@ -93,7 +96,12 @@ export default function Workbench() {
 
   const uploadMutation = useMutation({
     mutationFn: async ({ pdfFile, jsonFile }: { pdfFile: File; jsonFile?: File }) => {
-      return api.uploadAndParseDocument(pdfFile, jsonFile);
+      setUploadProgress(0);
+      setUploadStage("Starting upload...");
+      return api.uploadAndParseDocument(pdfFile, jsonFile, (progress, stage) => {
+        setUploadProgress(progress);
+        setUploadStage(stage);
+      });
     },
     onSuccess: (data) => {
       toast({
@@ -106,12 +114,16 @@ export default function Workbench() {
         setPdfFile(null);
         setJsonFile(null);
         setExtractedInfo(null);
+        setUploadProgress(0);
+        setUploadStage("");
       }, 3000);
       queryClient.invalidateQueries({ queryKey: ["claims"] });
       setSelectedClaimId(data.claimId);
       setSelectedDocumentId(data.documentId);
     },
     onError: (error: Error) => {
+      setUploadProgress(0);
+      setUploadStage("");
       toast({
         title: "Upload Failed",
         description: error.message || "Failed to upload and parse document",
@@ -744,7 +756,7 @@ export default function Workbench() {
                       {uploadMutation.isPending ? (
                         <>
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Parsing with AI...
+                          {uploadStage || "Processing..."}
                         </>
                       ) : (
                         <>
@@ -753,6 +765,16 @@ export default function Workbench() {
                         </>
                       )}
                     </Button>
+                    
+                    {uploadMutation.isPending && (
+                      <div className="space-y-2 mt-4">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">{uploadStage}</span>
+                          <span className="font-medium">{uploadProgress}%</span>
+                        </div>
+                        <Progress value={uploadProgress} className="h-2" />
+                      </div>
+                    )}
                   </div>
                 </DialogContent>
               </Dialog>

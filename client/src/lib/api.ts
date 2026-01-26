@@ -57,7 +57,8 @@ export const api = {
 
   async uploadAndParseDocument(
     file: File,
-    issuesFile?: File
+    issuesFile?: File,
+    onProgress?: (progress: number, stage: string) => void
   ): Promise<{ claimId: string; documentId: string; extractedInfo: ExtractedClaimInfo }> {
     const formData = new FormData();
     formData.append("file", file);
@@ -65,25 +66,73 @@ export const api = {
       formData.append("issues", issuesFile);
     }
     
-    const res = await fetch(`${API_BASE}/api/documents/upload`, {
-      method: "POST",
-      body: formData,
-    });
-    if (!res.ok) {
-      const errorText = await res.text();
-      let errorMessage = "Failed to upload and parse document";
-      try {
-        const errorJson = JSON.parse(errorText);
-        errorMessage = errorJson.error || errorMessage;
-        if (errorJson.details) {
-          errorMessage += `: ${errorJson.details}`;
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      
+      xhr.upload.addEventListener("progress", (event) => {
+        if (event.lengthComputable) {
+          const percentComplete = Math.round((event.loaded / event.total) * 50);
+          onProgress?.(percentComplete, "Uploading file...");
         }
-      } catch {
-        errorMessage = errorText || errorMessage;
-      }
-      throw new Error(errorMessage);
-    }
-    return res.json();
+      });
+      
+      xhr.addEventListener("load", () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress?.(100, "Complete!");
+          try {
+            const response = JSON.parse(xhr.responseText);
+            resolve(response);
+          } catch {
+            reject(new Error("Invalid response from server"));
+          }
+        } else {
+          let errorMessage = "Failed to upload and parse document";
+          try {
+            const errorJson = JSON.parse(xhr.responseText);
+            errorMessage = errorJson.error || errorMessage;
+            if (errorJson.details) {
+              errorMessage += `: ${errorJson.details}`;
+            }
+          } catch {
+            errorMessage = xhr.responseText || errorMessage;
+          }
+          reject(new Error(errorMessage));
+        }
+      });
+      
+      xhr.addEventListener("error", () => {
+        reject(new Error("Network error during upload"));
+      });
+      
+      xhr.addEventListener("loadend", () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress?.(100, "Complete!");
+        }
+      });
+      
+      xhr.open("POST", `${API_BASE}/api/documents/upload`);
+      
+      onProgress?.(0, "Starting upload...");
+      xhr.send(formData);
+      
+      setTimeout(() => {
+        if (xhr.readyState !== 4) {
+          onProgress?.(55, "Processing document...");
+        }
+      }, 500);
+      
+      setTimeout(() => {
+        if (xhr.readyState !== 4) {
+          onProgress?.(70, "Extracting information...");
+        }
+      }, 1500);
+      
+      setTimeout(() => {
+        if (xhr.readyState !== 4) {
+          onProgress?.(85, "Finalizing...");
+        }
+      }, 3000);
+    });
   },
 
   async getAuditLogs(documentId?: string): Promise<AuditLog[]> {
