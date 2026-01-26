@@ -1,11 +1,19 @@
-import pdfParse from "pdf-parse";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const pdfParse = require("pdf-parse");
+
 import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+function getOpenAI(): OpenAI | null {
+  if (!process.env.OPENAI_API_KEY) {
+    return null;
+  }
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+}
 
 export interface ExtractedClaimInfo {
   claimId?: string;
@@ -42,7 +50,8 @@ export async function extractPdfText(pdfPath: string, maxPages: number = 3): Pro
  * Parse PDF text with OpenAI to extract structured claim information
  */
 export async function parseClaimDocument(pdfText: string): Promise<ExtractedClaimInfo> {
-  if (!process.env.OPENAI_API_KEY) {
+  const openai = getOpenAI();
+  if (!openai) {
     console.warn("OPENAI_API_KEY not set, using fallback claim ID generation");
     // Return fallback with generated claim ID
     return {
