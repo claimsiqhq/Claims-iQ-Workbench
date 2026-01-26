@@ -1,4 +1,4 @@
-import type { Claim, Document, IssueBundle, AuditLog, SessionData } from "@shared/schema";
+import type { Claim, Document, IssueBundle, AuditLog, SessionData, ExtractedClaimInfo } from "@shared/schema";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -52,6 +52,37 @@ export const api = {
       body: formData,
     });
     if (!res.ok) throw new Error("Failed to upload document");
+    return res.json();
+  },
+
+  async uploadAndParseDocument(
+    file: File,
+    issuesFile?: File
+  ): Promise<{ claimId: string; documentId: string; extractedInfo: ExtractedClaimInfo }> {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (issuesFile) {
+      formData.append("issues", issuesFile);
+    }
+    
+    const res = await fetch(`${API_BASE}/api/documents/upload`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) {
+      const errorText = await res.text();
+      let errorMessage = "Failed to upload and parse document";
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorMessage = errorJson.error || errorMessage;
+        if (errorJson.details) {
+          errorMessage += `: ${errorJson.details}`;
+        }
+      } catch {
+        errorMessage = errorText || errorMessage;
+      }
+      throw new Error(errorMessage);
+    }
     return res.json();
   },
 

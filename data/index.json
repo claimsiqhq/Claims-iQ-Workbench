@@ -6,6 +6,19 @@
         {
           "documentId": "DOC-001",
           "title": "claim.pdf"
+        },
+        {
+          "documentId": "e56b8d9c-b09f-4532-86f8-f5dae75765e0",
+          "title": "00106008263_2025-08-31_PolicyChange_0000425889312.pdf"
+        }
+      ]
+    },
+    {
+      "claimId": "CLM-333",
+      "documents": [
+        {
+          "documentId": "3da6b7a6-0484-4724-ba21-d60a79cf4f03",
+          "title": "00106008263_2025-08-31_PolicyChange_0000425889312.pdf"
         }
       ]
     }

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useNutrientViewer } from "@/hooks/use-nutrient-viewer";
 import { FixEngine } from "@/lib/fix-engine";
-import type { Issue, IssueStatus, Claim, Document, SessionData } from "@shared/schema";
+import type { Issue, IssueStatus, Claim, Document, SessionData, ExtractedClaimInfo } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -41,10 +41,10 @@ export default function Workbench() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [jsonFile, setJsonFile] = useState<File | null>(null);
-  const [newClaimId, setNewClaimId] = useState("");
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const jsonInputRef = useRef<HTMLInputElement>(null);
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
+  const [extractedInfo, setExtractedInfo] = useState<ExtractedClaimInfo | null>(null);
 
   const { data: claims } = useQuery({
     queryKey: ["claims"],
@@ -80,23 +80,22 @@ export default function Workbench() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: async ({ claimId, pdfFile, jsonFile }: { claimId: string; pdfFile: File; jsonFile?: File }) => {
-      let issuesData = null;
-      if (jsonFile) {
-        const text = await jsonFile.text();
-        issuesData = JSON.parse(text);
-      }
-      return api.uploadDocument(claimId, pdfFile, issuesData);
+    mutationFn: async ({ pdfFile, jsonFile }: { pdfFile: File; jsonFile?: File }) => {
+      return api.uploadAndParseDocument(pdfFile, jsonFile);
     },
     onSuccess: (data) => {
       toast({
         title: "Upload Successful",
-        description: "Document and corrections uploaded successfully",
+        description: `Document parsed and uploaded. Claim ID: ${data.claimId}`,
       });
+      setExtractedInfo(data.extractedInfo);
       setUploadDialogOpen(false);
-      setPdfFile(null);
-      setJsonFile(null);
-      setNewClaimId("");
+      // Keep extracted info visible briefly, then clear
+      setTimeout(() => {
+        setPdfFile(null);
+        setJsonFile(null);
+        setExtractedInfo(null);
+      }, 3000);
       // Refresh claims list
       queryClient.invalidateQueries({ queryKey: ["claims"] });
       // Select the newly uploaded document
@@ -106,7 +105,7 @@ export default function Workbench() {
     onError: (error: Error) => {
       toast({
         title: "Upload Failed",
-        description: error.message || "Failed to upload document",
+        description: error.message || "Failed to upload and parse document",
         variant: "destructive",
       });
     },
@@ -276,17 +275,7 @@ export default function Workbench() {
       return;
     }
 
-    if (!newClaimId.trim()) {
-      toast({
-        title: "Claim ID Required",
-        description: "Please enter a claim ID",
-        variant: "destructive",
-      });
-      return;
-    }
-
     uploadMutation.mutate({
-      claimId: newClaimId.trim(),
       pdfFile,
       jsonFile: jsonFile || undefined,
     });
@@ -519,25 +508,14 @@ export default function Workbench() {
                   Upload Document
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[500px]">
+              <DialogContent className="sm:max-w-[600px]">
                 <DialogHeader>
                   <DialogTitle>Upload Document and Corrections</DialogTitle>
                   <DialogDescription>
-                    Upload a PDF document and optionally a JSON file with corrections to apply.
+                    Upload a PDF document. The system will automatically parse the first few pages to extract claim information using AI. Optionally upload a JSON file with corrections to apply.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="claim-id">Claim ID</Label>
-                    <Input
-                      id="claim-id"
-                      placeholder="e.g., CLM-001"
-                      value={newClaimId}
-                      onChange={(e) => setNewClaimId(e.target.value)}
-                      data-testid="input-claim-id"
-                    />
-                  </div>
-                  
                   <div className="space-y-2">
                     <Label htmlFor="pdf-file">PDF Document (Required)</Label>
                     <div className="flex items-center gap-2">
@@ -600,21 +578,77 @@ export default function Workbench() {
                     )}
                   </div>
 
+                  {extractedInfo && (
+                    <div className="p-4 bg-muted rounded-lg space-y-2">
+                      <h4 className="font-semibold text-sm">Extracted Information</h4>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        {extractedInfo.claimId && (
+                          <div>
+                            <span className="text-muted-foreground">Claim ID:</span>
+                            <span className="ml-2 font-mono">{extractedInfo.claimId}</span>
+                          </div>
+                        )}
+                        {extractedInfo.claimNumber && (
+                          <div>
+                            <span className="text-muted-foreground">Claim Number:</span>
+                            <span className="ml-2">{extractedInfo.claimNumber}</span>
+                          </div>
+                        )}
+                        {extractedInfo.policyNumber && (
+                          <div>
+                            <span className="text-muted-foreground">Policy Number:</span>
+                            <span className="ml-2">{extractedInfo.policyNumber}</span>
+                          </div>
+                        )}
+                        {extractedInfo.insuredName && (
+                          <div>
+                            <span className="text-muted-foreground">Insured Name:</span>
+                            <span className="ml-2">{extractedInfo.insuredName}</span>
+                          </div>
+                        )}
+                        {extractedInfo.dateOfLoss && (
+                          <div>
+                            <span className="text-muted-foreground">Date of Loss:</span>
+                            <span className="ml-2">{extractedInfo.dateOfLoss}</span>
+                          </div>
+                        )}
+                        {extractedInfo.claimAmount && (
+                          <div>
+                            <span className="text-muted-foreground">Claim Amount:</span>
+                            <span className="ml-2">{extractedInfo.claimAmount}</span>
+                          </div>
+                        )}
+                        {extractedInfo.status && (
+                          <div>
+                            <span className="text-muted-foreground">Status:</span>
+                            <span className="ml-2">{extractedInfo.status}</span>
+                          </div>
+                        )}
+                        {extractedInfo.adjusterName && (
+                          <div>
+                            <span className="text-muted-foreground">Adjuster:</span>
+                            <span className="ml-2">{extractedInfo.adjusterName}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   <Button
                     onClick={handleUpload}
-                    disabled={!pdfFile || !newClaimId.trim() || uploadMutation.isPending}
+                    disabled={!pdfFile || uploadMutation.isPending}
                     className="w-full"
                     data-testid="button-upload-submit"
                   >
                     {uploadMutation.isPending ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Uploading...
+                        Parsing and Uploading...
                       </>
                     ) : (
                       <>
                         <Upload className="h-4 w-4 mr-2" />
-                        Upload
+                        Upload & Parse
                       </>
                     )}
                   </Button>

@@ -74,6 +74,17 @@ export const ClaimSchema = z.object({
   documents: z.array(ClaimDocumentRefSchema).optional(),
 });
 
+export const ExtractedClaimInfoSchema = z.object({
+  claimId: z.string().optional(),
+  claimNumber: z.string().optional(),
+  policyNumber: z.string().optional(),
+  insuredName: z.string().optional(),
+  dateOfLoss: z.string().optional(),
+  claimAmount: z.string().optional(),
+  status: z.string().optional(),
+  adjusterName: z.string().optional(),
+}).passthrough(); // Allow additional fields
+
 export const SessionDataSchema = z.object({
   documentId: z.string(),
   jwt: z.string().optional(),
@@ -101,4 +112,5 @@ export type Document = z.infer<typeof DocumentSchema>;
 export type Claim = z.infer<typeof ClaimSchema>;
 export type SessionData = z.infer<typeof SessionDataSchema>;
 export type AuditLog = z.infer<typeof AuditLogSchema>;
+export type ExtractedClaimInfo = z.infer<typeof ExtractedClaimInfoSchema>;
 export type IssueStatus = "OPEN" | "APPLIED" | "MANUAL" | "REJECTED";

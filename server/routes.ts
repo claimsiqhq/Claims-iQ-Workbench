@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from "uuid";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
+import { parsePdfFile, type ExtractedClaimInfo } from "./pdf-parser";
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 const STORAGE_DIR = path.resolve(process.cwd(), "storage");
@@ -220,6 +221,111 @@ export async function registerRoutes(
       res.json(documents);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch documents" });
+    }
+  });
+
+  // New endpoint: Upload PDF and auto-parse to extract claim information
+  app.post("/api/documents/upload", upload.fields([
+    { name: "file", maxCount: 1 },
+    { name: "issues", maxCount: 1 },
+  ]), async (req, res) => {
+    try {
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+
+      if (!files.file || files.file.length === 0) {
+        return res.status(400).json({ error: "PDF file is required" });
+      }
+
+      const pdfFile = files.file[0];
+      const documentId = uuidv4();
+      const pdfPath = path.join(STORAGE_DIR, `${documentId}.pdf`);
+      
+      fs.renameSync(pdfFile.path, pdfPath);
+
+      // Parse PDF to extract claim information
+      let extractedInfo: ExtractedClaimInfo = {};
+      let claimId: string;
+      
+      try {
+        extractedInfo = await parsePdfFile(pdfPath);
+        claimId = extractedInfo.claimId || `CLM-${Date.now().toString().slice(-6)}`;
+        
+        // Sanitize claimId to ensure it matches ID_PATTERN
+        claimId = claimId.replace(/[^a-zA-Z0-9-_]/g, "-").toUpperCase();
+        if (!ID_PATTERN.test(claimId)) {
+          claimId = `CLM-${Date.now().toString().slice(-6)}`;
+        }
+      } catch (parseError) {
+        console.error("Error parsing PDF:", parseError);
+        // Fallback: generate claim ID
+        claimId = `CLM-${Date.now().toString().slice(-6)}`;
+        extractedInfo = { claimId };
+      }
+
+      let issuesData: any = null;
+      try {
+        if (files.issues && files.issues.length > 0) {
+          const issuesContent = fs.readFileSync(files.issues[0].path, "utf-8");
+          issuesData = JSON.parse(issuesContent);
+          fs.unlinkSync(files.issues[0].path);
+        } else if (req.body.issues) {
+          issuesData = typeof req.body.issues === "string" 
+            ? JSON.parse(req.body.issues) 
+            : req.body.issues;
+        }
+
+        if (issuesData) {
+          const validated = IssueBundleSchema.safeParse(issuesData);
+          if (!validated.success) {
+            fs.unlinkSync(pdfPath);
+            return res.status(400).json({ 
+              error: "Invalid issues format", 
+              details: validated.error.message 
+            });
+          }
+          
+          const issuesPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__issues.json`);
+          fs.writeFileSync(issuesPath, JSON.stringify(validated.data, null, 2));
+        }
+      } catch (parseError) {
+        fs.unlinkSync(pdfPath);
+        return res.status(400).json({ 
+          error: "Invalid issues JSON", 
+          details: parseError instanceof Error ? parseError.message : "Parse error" 
+        });
+      }
+
+      const index = readIndex();
+      let claim = index.claims.find((c) => c.claimId === claimId);
+      
+      if (!claim) {
+        claim = { 
+          claimId, 
+          claimNumber: extractedInfo.claimNumber,
+          policyNumber: extractedInfo.policyNumber,
+          status: extractedInfo.status,
+          documents: [] 
+        };
+        index.claims.push(claim);
+      }
+
+      claim.documents.push({
+        documentId,
+        title: pdfFile.originalname || `${documentId}.pdf`,
+      });
+
+      writeIndex(index);
+
+      await registerWithDocEngine(documentId);
+
+      res.json({ 
+        claimId, 
+        documentId,
+        extractedInfo 
+      });
+    } catch (error) {
+      console.error("Upload error:", error);
+      res.status(500).json({ error: "Failed to upload document" });
     }
   });
 
