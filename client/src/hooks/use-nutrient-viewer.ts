@@ -35,7 +35,7 @@ export function useNutrientViewer(options: NutrientViewerOptions) {
       setError(null);
 
       try {
-        if (instanceRef.current) {
+        if (instanceRef.current && typeof instanceRef.current.unload === 'function') {
           await instanceRef.current.unload();
           instanceRef.current = null;
         }
@@ -78,7 +78,7 @@ export function useNutrientViewer(options: NutrientViewerOptions) {
 
     return () => {
       mounted = false;
-      if (instanceRef.current) {
+      if (instanceRef.current && typeof instanceRef.current.unload === 'function') {
         instanceRef.current.unload().catch(console.error);
         instanceRef.current = null;
       }
