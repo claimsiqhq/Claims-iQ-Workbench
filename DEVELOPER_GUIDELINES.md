@@ -114,6 +114,9 @@ Ship safety before speed.
 - [x] **User Menu**: Sign-in/sign-out with user email display
 - [x] **Progress Tracking**: Upload progress with stage indicators
 - [x] **Issue Statistics**: Real-time counts of open, applied, and rejected issues
+- [x] **Professional UI Redesign**: Complete UI overhaul with proper sizing (h-10 minimum), spacing (p-6), typography (text-sm/base), and visual polish
+- [x] **Automatic Claim ID Generation**: AI-powered extraction eliminates need for manual claim ID input
+- [x] **Enhanced Upload Dialog**: Drag-and-drop interface with visual feedback and extracted information display
 
 ### Partially Implemented
 
@@ -145,12 +148,13 @@ Ship safety before speed.
 
 ### Medium Priority
 
-- [ ] **Before/After Preview**: Show visual diff of corrections before applying
-- [ ] **Confidence Score Display**: Add confidence percentage to issue cards
+- [x] **Before/After Display**: Shows found/expected values in issue cards (completed)
+- [x] **Confidence Score Display**: Confidence percentage displayed in issue cards (completed)
+- [x] **Export Corrected PDF**: Download button for corrected document (completed)
+- [ ] **Before/After Preview**: Show visual diff of corrections before applying (enhancement)
 - [ ] **Batch Operations**: Apply/reject multiple issues at once
 - [ ] **Search & Filter**: Search issues by description, type, or value
 - [ ] **Keyboard Shortcuts**: Navigate issues with arrow keys, apply with Enter
-- [ ] **Export Corrected PDF**: Download button for corrected document
 - [ ] **Undo/Redo**: Allow reverting applied corrections
 
 ### Low Priority
@@ -254,4 +258,24 @@ Ship safety before speed.
 
 ---
 
-*Last updated: January 2026*
+---
+
+## Recent Updates (January 2026)
+
+### UI/UX Improvements
+- **Complete UI Redesign**: Implemented professional design system with:
+  - Minimum component height of 40px (h-10) for better usability
+  - Consistent spacing system (p-6 for cards, px-6 for containers)
+  - Improved typography scale (removed text-xs from primary UI)
+  - Enhanced visual hierarchy with proper shadows, borders, and spacing
+  - Wider sidebar (420px) for better issue card readability
+  - Professional header with better organization and sizing
+
+### Feature Enhancements
+- **Automatic Claim Extraction**: PDF upload now automatically extracts claim information using OpenAI
+- **Enhanced Upload Experience**: Drag-and-drop interface with progress tracking and visual feedback
+- **Improved Issue Cards**: Better visual design with status indicators, severity colors, and clearer action buttons
+
+---
+
+*Last updated: January 26, 2026*
