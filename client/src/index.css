@@ -158,4 +158,23 @@
   .font-display {
     font-family: var(--font-display);
   }
+  
+  .hover-elevate {
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  
+  .hover-elevate:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+  
+  .active-elevate-2:active:not(:disabled) {
+    transform: translateY(0);
+  }
+}
+
+:root {
+  --button-outline: hsl(var(--border));
+  --primary-border: hsl(220 90% 35%);
+  --secondary-border: hsl(var(--border));
+  --destructive-border: hsl(0 65% 50%);
 }
