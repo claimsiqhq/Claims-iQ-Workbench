@@ -83,7 +83,7 @@ export function useNutrientViewer(options: NutrientViewerOptions) {
         instanceRef.current = null;
       }
     };
-  }, [options.documentUrl, options.instant?.documentId, options.container]);
+  }, [options.documentUrl, options.instant?.documentId, options.instant?.serverUrl, options.instant?.jwt, options.container]);
 
   return {
     instance,

@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useNutrientViewer } from "@/hooks/use-nutrient-viewer";
 import { FixEngine } from "@/lib/fix-engine";
-import type { Issue, IssueStatus, Claim, Document } from "@shared/schema";
+import type { Issue, IssueStatus, Claim, Document, SessionData } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,6 +12,8 @@ import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { 
   FileText, 
@@ -21,11 +23,14 @@ import {
   XCircle, 
   Edit3, 
   AlertCircle,
-  Loader2
+  Loader2,
+  Upload,
+  X
 } from "lucide-react";
 
 export default function Workbench() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [selectedClaimId, setSelectedClaimId] = useState<string>("");
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
   const [username, setUsername] = useState("operator-1");
@@ -33,6 +38,13 @@ export default function Workbench() {
   const [issueAnnotations, setIssueAnnotations] = useState<Map<string, string>>(new Map());
   const [filter, setFilter] = useState<"all" | "open" | "applied" | "rejected">("all");
   const [isDocumentLoaded, setIsDocumentLoaded] = useState(false);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [jsonFile, setJsonFile] = useState<File | null>(null);
+  const [newClaimId, setNewClaimId] = useState("");
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+  const jsonInputRef = useRef<HTMLInputElement>(null);
+  const [sessionData, setSessionData] = useState<SessionData | null>(null);
 
   const { data: claims } = useQuery({
     queryKey: ["claims"],
@@ -51,15 +63,95 @@ export default function Workbench() {
     enabled: !!selectedClaimId && !!selectedDocumentId && isDocumentLoaded,
   });
 
+  const { data: session } = useQuery({
+    queryKey: ["session", selectedDocumentId],
+    queryFn: () => api.getSession(selectedDocumentId),
+    enabled: !!selectedDocumentId && isDocumentLoaded,
+  });
+
+  useEffect(() => {
+    if (session) {
+      setSessionData(session);
+    }
+  }, [session]);
+
   const auditMutation = useMutation({
     mutationFn: api.logAudit,
   });
 
-  const { instance, isLoading: viewerLoading, containerRef } = useNutrientViewer({
-    documentUrl: isDocumentLoaded && selectedDocumentId 
-      ? `https://example.com/demo.pdf` 
-      : undefined,
+  const uploadMutation = useMutation({
+    mutationFn: async ({ claimId, pdfFile, jsonFile }: { claimId: string; pdfFile: File; jsonFile?: File }) => {
+      let issuesData = null;
+      if (jsonFile) {
+        const text = await jsonFile.text();
+        issuesData = JSON.parse(text);
+      }
+      return api.uploadDocument(claimId, pdfFile, issuesData);
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Upload Successful",
+        description: "Document and corrections uploaded successfully",
+      });
+      setUploadDialogOpen(false);
+      setPdfFile(null);
+      setJsonFile(null);
+      setNewClaimId("");
+      // Refresh claims list
+      queryClient.invalidateQueries({ queryKey: ["claims"] });
+      // Select the newly uploaded document
+      setSelectedClaimId(data.claimId);
+      setSelectedDocumentId(data.documentId);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Upload Failed",
+        description: error.message || "Failed to upload document",
+        variant: "destructive",
+      });
+    },
   });
+
+  // Determine document URL or instant config
+  const documentUrl = useMemo(() => {
+    if (!isDocumentLoaded || !selectedDocumentId) return undefined;
+    
+    // If we have session data with instant mode, use that (instant mode enables editing)
+    if (sessionData?.instant && sessionData?.jwt && sessionData?.serverUrl) {
+      return undefined; // Will use instant mode instead
+    }
+    
+    // Otherwise, use direct PDF URL (read-only mode)
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
+    return `${baseUrl}/files/${selectedDocumentId}.pdf`;
+  }, [isDocumentLoaded, selectedDocumentId, sessionData]);
+
+  const instantConfig = useMemo(() => {
+    if (!isDocumentLoaded || !selectedDocumentId || !sessionData) return undefined;
+    
+    // Use instant mode if we have all required fields (enables live editing)
+    if (sessionData.instant && sessionData.jwt && sessionData.serverUrl) {
+      return {
+        serverUrl: sessionData.serverUrl,
+        documentId: selectedDocumentId,
+        jwt: sessionData.jwt,
+      };
+    }
+    
+    return undefined;
+  }, [isDocumentLoaded, selectedDocumentId, sessionData]);
+
+  const { instance, isLoading: viewerLoading, containerRef } = useNutrientViewer({
+    documentUrl: documentUrl,
+    instant: instantConfig,
+  });
+
+  // Reset document loaded state when document selection changes
+  useEffect(() => {
+    setIsDocumentLoaded(false);
+    setSessionData(null);
+    setIssueAnnotations(new Map());
+  }, [selectedDocumentId]);
 
   useEffect(() => {
     if (issueBundle?.issues) {
@@ -142,6 +234,76 @@ export default function Workbench() {
       title: "Document Loading",
       description: "Loading document and issues...",
     });
+  };
+
+  const handlePdfFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.type !== "application/pdf") {
+        toast({
+          title: "Invalid File Type",
+          description: "Please select a PDF file",
+          variant: "destructive",
+        });
+        return;
+      }
+      setPdfFile(file);
+    }
+  };
+
+  const handleJsonFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.type !== "application/json" && !file.name.endsWith(".json")) {
+        toast({
+          title: "Invalid File Type",
+          description: "Please select a JSON file",
+          variant: "destructive",
+        });
+        return;
+      }
+      setJsonFile(file);
+    }
+  };
+
+  const handleUpload = () => {
+    if (!pdfFile) {
+      toast({
+        title: "PDF Required",
+        description: "Please select a PDF file to upload",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!newClaimId.trim()) {
+      toast({
+        title: "Claim ID Required",
+        description: "Please enter a claim ID",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    uploadMutation.mutate({
+      claimId: newClaimId.trim(),
+      pdfFile,
+      jsonFile: jsonFile || undefined,
+    });
+  };
+
+  const handleRemovePdf = () => {
+    setPdfFile(null);
+    if (pdfInputRef.current) {
+      pdfInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveJson = () => {
+    setJsonFile(null);
+    if (jsonInputRef.current) {
+      jsonInputRef.current.value = "";
+    }
   };
 
   const handleIssueClick = async (issue: Issue) => {
@@ -350,6 +512,116 @@ export default function Workbench() {
           />
 
           <div className="ml-auto flex gap-2">
+            <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" data-testid="button-upload">
+                  <Upload className="h-4 w-4 mr-2" />
+                  Upload Document
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[500px]">
+                <DialogHeader>
+                  <DialogTitle>Upload Document and Corrections</DialogTitle>
+                  <DialogDescription>
+                    Upload a PDF document and optionally a JSON file with corrections to apply.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="claim-id">Claim ID</Label>
+                    <Input
+                      id="claim-id"
+                      placeholder="e.g., CLM-001"
+                      value={newClaimId}
+                      onChange={(e) => setNewClaimId(e.target.value)}
+                      data-testid="input-claim-id"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="pdf-file">PDF Document (Required)</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="pdf-file"
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        onChange={handlePdfFileChange}
+                        ref={pdfInputRef}
+                        className="flex-1"
+                        data-testid="input-pdf"
+                      />
+                      {pdfFile && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={handleRemovePdf}
+                          className="h-9 w-9"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                    {pdfFile && (
+                      <p className="text-sm text-muted-foreground">
+                        Selected: {pdfFile.name} ({(pdfFile.size / 1024 / 1024).toFixed(2)} MB)
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="json-file">Corrections JSON (Optional)</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="json-file"
+                        type="file"
+                        accept=".json,application/json"
+                        onChange={handleJsonFileChange}
+                        ref={jsonInputRef}
+                        className="flex-1"
+                        data-testid="input-json"
+                      />
+                      {jsonFile && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={handleRemoveJson}
+                          className="h-9 w-9"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                    {jsonFile && (
+                      <p className="text-sm text-muted-foreground">
+                        Selected: {jsonFile.name} ({(jsonFile.size / 1024).toFixed(2)} KB)
+                      </p>
+                    )}
+                  </div>
+
+                  <Button
+                    onClick={handleUpload}
+                    disabled={!pdfFile || !newClaimId.trim() || uploadMutation.isPending}
+                    className="w-full"
+                    data-testid="button-upload-submit"
+                  >
+                    {uploadMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4 mr-2" />
+                        Upload
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+            
             <Button onClick={handleSave} variant="outline" disabled={!instance} data-testid="button-save">
               <Save className="h-4 w-4 mr-2" />
               Save
