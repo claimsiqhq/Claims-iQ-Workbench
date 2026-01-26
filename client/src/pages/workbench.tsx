@@ -111,12 +111,7 @@ export default function Workbench() {
 
   const uploadMutation = useMutation({
     mutationFn: async ({ pdfFile, jsonFile }: { pdfFile: File; jsonFile?: File }) => {
-      setUploadProgress(0);
-      setUploadStage("Starting upload...");
-      return api.uploadAndParseDocument(pdfFile, jsonFile, (progress, stage) => {
-        setUploadProgress(progress);
-        setUploadStage(stage);
-      });
+      return api.uploadAndParseDocument(pdfFile, jsonFile);
     },
     onSuccess: (data) => {
       toast({
@@ -129,16 +124,12 @@ export default function Workbench() {
         setPdfFile(null);
         setJsonFile(null);
         setExtractedInfo(null);
-        setUploadProgress(0);
-        setUploadStage("");
       }, 3000);
       queryClient.invalidateQueries({ queryKey: ["claims"] });
       setSelectedClaimId(data.claimId);
       setSelectedDocumentId(data.documentId);
     },
     onError: (error: Error) => {
-      setUploadProgress(0);
-      setUploadStage("");
       toast({
         title: "Upload Failed",
         description: error.message || "Failed to upload and parse document",
@@ -282,84 +273,6 @@ export default function Workbench() {
     if (pdf) setPdfFile(pdf);
     if (json) setJsonFile(json);
   };
-
-  // Global drag-and-drop handlers for full page drop zone
-  useEffect(() => {
-    const handleGlobalDragEnter = (e: DragEvent) => {
-      e.preventDefault();
-      dragCounterRef.current++;
-      if (e.dataTransfer?.types.includes('Files')) {
-        setGlobalDragging(true);
-      }
-    };
-
-    const handleGlobalDragLeave = (e: DragEvent) => {
-      e.preventDefault();
-      dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
-      if (dragCounterRef.current === 0) {
-        setGlobalDragging(false);
-      }
-    };
-
-    const handleGlobalDragOver = (e: DragEvent) => {
-      e.preventDefault();
-      if (e.dataTransfer) {
-        e.dataTransfer.dropEffect = 'copy';
-      }
-    };
-
-    const handleGlobalDrop = (e: DragEvent) => {
-      // Skip if dropping inside the upload dialog drop zone
-      const target = e.target as HTMLElement;
-      if (target.closest('[data-dropzone]')) {
-        return;
-      }
-      
-      e.preventDefault();
-      dragCounterRef.current = 0;
-      setGlobalDragging(false);
-      
-      const files = Array.from(e.dataTransfer?.files || []);
-      const pdf = files.find(f => f.type === "application/pdf");
-      const json = files.find(f => f.type === "application/json" || f.name.endsWith(".json"));
-      
-      if (pdf || json) {
-        if (pdf) setPdfFile(pdf);
-        if (json) setJsonFile(json);
-        setUploadDialogOpen(true);
-        
-        toast({
-          title: "File Added",
-          description: pdf ? `${pdf.name} ready for upload` : `${json?.name} added as corrections`,
-        });
-      } else if (files.length > 0) {
-        toast({
-          title: "Unsupported File Type",
-          description: "Please drop a PDF document or JSON correction file.",
-          variant: "destructive",
-        });
-      }
-    };
-
-    const handleGlobalDragEnd = () => {
-      dragCounterRef.current = 0;
-      setGlobalDragging(false);
-    };
-
-    document.addEventListener('dragenter', handleGlobalDragEnter);
-    document.addEventListener('dragleave', handleGlobalDragLeave);
-    document.addEventListener('dragover', handleGlobalDragOver);
-    document.addEventListener('drop', handleGlobalDrop);
-    document.addEventListener('dragend', handleGlobalDragEnd);
-
-    return () => {
-      document.removeEventListener('dragenter', handleGlobalDragEnter);
-      document.removeEventListener('dragleave', handleGlobalDragLeave);
-      document.removeEventListener('dragover', handleGlobalDragOver);
-      document.removeEventListener('drop', handleGlobalDrop);
-      document.removeEventListener('dragend', handleGlobalDragEnd);
-    };
-  }, [toast]);
 
   const handlePdfFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -584,15 +497,15 @@ export default function Workbench() {
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case "critical":
-        return "text-red-600 bg-red-50 border-red-200";
+        return "text-red-600 bg-red-50 border-red-200 dark:text-red-400 dark:bg-red-950/30 dark:border-red-800";
       case "high":
-        return "text-orange-600 bg-orange-50 border-orange-200";
+        return "text-orange-600 bg-orange-50 border-orange-200 dark:text-orange-400 dark:bg-orange-950/30 dark:border-orange-800";
       case "medium":
-        return "text-yellow-600 bg-yellow-50 border-yellow-200";
+        return "text-yellow-600 bg-yellow-50 border-yellow-200 dark:text-yellow-400 dark:bg-yellow-950/30 dark:border-yellow-800";
       case "low":
-        return "text-blue-600 bg-blue-50 border-blue-200";
+        return "text-blue-600 bg-blue-50 border-blue-200 dark:text-blue-400 dark:bg-blue-950/30 dark:border-blue-800";
       default:
-        return "text-gray-600 bg-gray-50 border-gray-200";
+        return "text-gray-600 bg-gray-50 border-gray-200 dark:text-gray-400 dark:bg-gray-950/30 dark:border-gray-800";
     }
   };
 
@@ -627,16 +540,6 @@ export default function Workbench() {
                   PDF documents or JSON correction files
                 </p>
               </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <div className="flex items-center gap-1 px-2 py-1 bg-muted rounded">
-                  <FileText className="h-3 w-3" />
-                  <span>.pdf</span>
-                </div>
-                <div className="flex items-center gap-1 px-2 py-1 bg-muted rounded">
-                  <FileText className="h-3 w-3" />
-                  <span>.json</span>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -644,37 +547,40 @@ export default function Workbench() {
 
       {/* Schema Setup Warning */}
       {showSchemaWarning && (
-        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2">
-          <div className="flex items-center gap-2 text-amber-800">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
+        <div className="bg-amber-50 dark:bg-amber-950/20 border-b border-amber-200 dark:border-amber-800 px-6 py-3">
+          <div className="flex items-center gap-3 text-amber-800 dark:text-amber-200">
+            <AlertTriangle className="h-5 w-5 shrink-0" />
             <span className="text-sm">
               <strong>Database setup required:</strong> Run the SQL schema in your Supabase SQL Editor. 
-              Open <code className="bg-amber-100 px-1 rounded">supabase/schema.sql</code> and execute it in your Supabase dashboard.
+              Open <code className="bg-amber-100 dark:bg-amber-900/50 px-1.5 py-0.5 rounded text-xs font-mono">supabase/schema.sql</code> and execute it in your Supabase dashboard.
             </span>
           </div>
         </div>
       )}
       
-      {/* Header */}
-      <header className="border-b bg-card">
-        <div className="px-4 py-3">
-          <div className="flex items-center gap-4">
-            {/* Branding */}
-            <div className="flex items-center gap-2 shrink-0">
-              <div className="p-1.5 rounded-md bg-primary/10">
-                <FileText className="h-4 w-4 text-primary" />
+      {/* Professional Header - Increased Size */}
+      <header className="border-b bg-card shadow-sm">
+        <div className="px-6 py-5">
+          <div className="flex items-center gap-6">
+            {/* Branding Section */}
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="p-2.5 rounded-lg bg-primary/10">
+                <FileText className="h-5 w-5 text-primary" />
               </div>
-              <h1 className="text-sm font-semibold text-foreground hidden md:block">Claims Workbench</h1>
+              <div>
+                <h1 className="text-lg font-display font-semibold text-foreground">Claims Workbench</h1>
+                <p className="text-xs text-muted-foreground hidden lg:block">Document review and correction</p>
+              </div>
             </div>
 
-            <Separator orientation="vertical" className="h-6" />
+            <Separator orientation="vertical" className="h-10" />
 
-            {/* Document Selection Row */}
-            <div className="flex items-center gap-2">
-              <div className="w-40">
-                <Label className="text-xs text-muted-foreground mb-1 block">Claim</Label>
+            {/* Document Selection */}
+            <div className="flex items-end gap-4 flex-1 min-w-0">
+              <div className="flex-1 min-w-0">
+                <Label className="text-sm font-medium text-foreground mb-2 block">Claim</Label>
                 <Select value={selectedClaimId} onValueChange={setSelectedClaimId} data-testid="select-claim">
-                  <SelectTrigger className="h-8 text-xs">
+                  <SelectTrigger className="h-10 w-full">
                     <SelectValue placeholder="Select claim..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -687,17 +593,17 @@ export default function Workbench() {
                 </Select>
               </div>
 
-              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mt-5" />
+              <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 mb-2.5" />
 
-              <div className="w-48">
-                <Label className="text-xs text-muted-foreground mb-1 block">Document</Label>
+              <div className="flex-1 min-w-0">
+                <Label className="text-sm font-medium text-foreground mb-2 block">Document</Label>
                 <Select 
                   value={selectedDocumentId} 
                   onValueChange={setSelectedDocumentId} 
                   disabled={!selectedClaimId}
                   data-testid="select-document"
                 >
-                  <SelectTrigger className="h-8 text-xs">
+                  <SelectTrigger className="h-10 w-full">
                     <SelectValue placeholder="Select document..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -714,29 +620,25 @@ export default function Workbench() {
                 onClick={handleLoadDocument} 
                 disabled={!selectedClaimId || !selectedDocumentId || isDocumentLoaded}
                 data-testid="button-load"
-                size="sm"
-                className="mt-5"
+                className="h-10 mb-0"
               >
-                <FileCheck className="h-3.5 w-3.5 mr-1.5" />
-                Load
+                <FileCheck className="h-4 w-4 mr-2" />
+                Load Document
               </Button>
             </div>
 
-            {/* Spacer */}
-            <div className="flex-1" />
-
             {/* Right Actions */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3 shrink-0">
               {isAuthConfigured && user ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="gap-1.5" data-testid="button-user-menu">
-                      <User className="h-3.5 w-3.5" />
-                      <span className="max-w-[120px] truncate text-xs">{user.email}</span>
+                    <Button variant="outline" className="h-10 gap-2" data-testid="button-user-menu">
+                      <User className="h-4 w-4" />
+                      <span className="max-w-[140px] truncate text-sm">{user.email}</span>
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuItem disabled className="text-sm text-muted-foreground">
                       Signed in as {user.email}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -747,31 +649,31 @@ export default function Workbench() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : isAuthConfigured ? (
-                <Button variant="outline" size="sm" onClick={() => setLocation('/login')} data-testid="button-login">
-                  <User className="h-3.5 w-3.5 mr-1.5" />
+                <Button variant="outline" className="h-10" onClick={() => setLocation('/login')} data-testid="button-login">
+                  <User className="h-4 w-4 mr-2" />
                   Sign In
                 </Button>
               ) : (
-                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border bg-muted/50">
-                  <User className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">{username}</span>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md border bg-muted/50 h-10">
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">{username}</span>
                 </div>
               )}
 
               <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
                 <DialogTrigger asChild>
-                  <Button variant="outline" size="sm" data-testid="button-upload">
-                    <Upload className="h-3.5 w-3.5 mr-1.5" />
+                  <Button variant="outline" className="h-10 gap-2" data-testid="button-upload">
+                    <Upload className="h-4 w-4" />
                     Upload
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
+                    <DialogTitle className="flex items-center gap-2 text-xl">
                       <Sparkles className="h-5 w-5 text-primary" />
                       Upload & Parse Document
                     </DialogTitle>
-                    <DialogDescription>
+                    <DialogDescription className="text-base">
                       Upload a PDF document. Our AI will automatically extract claim information from the first few pages.
                     </DialogDescription>
                   </DialogHeader>
@@ -784,7 +686,7 @@ export default function Workbench() {
                       onDragLeave={handleDragLeave}
                       onDrop={handleDrop}
                       className={cn(
-                        "relative border-2 border-dashed rounded-lg p-8 transition-colors cursor-pointer",
+                        "relative border-2 border-dashed rounded-lg p-12 transition-colors cursor-pointer",
                         isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/25 bg-muted/30",
                         !pdfFile && "hover:border-primary/50"
                       )}
@@ -792,20 +694,20 @@ export default function Workbench() {
                     >
                       <div className="flex flex-col items-center justify-center text-center space-y-4">
                         <div className={cn(
-                          "p-4 rounded-full transition-colors",
+                          "p-5 rounded-full transition-colors",
                           isDragging ? "bg-primary/10" : "bg-muted"
                         )}>
                           <FileUp className={cn(
-                            "h-8 w-8 transition-colors",
+                            "h-10 w-10 transition-colors",
                             isDragging ? "text-primary" : "text-muted-foreground"
                           )} />
                         </div>
                         <div>
-                          <p className="text-sm font-medium">
+                          <p className="text-base font-medium">
                             {pdfFile ? pdfFile.name : "Drag & drop PDF here, or click to browse"}
                           </p>
                           {!pdfFile && (
-                            <p className="text-xs text-muted-foreground mt-1">
+                            <p className="text-sm text-muted-foreground mt-2">
                               PDF files up to 25MB
                             </p>
                           )}
@@ -814,9 +716,11 @@ export default function Workbench() {
                           <Button
                             type="button"
                             variant="outline"
-                            size="sm"
-                            onClick={() => pdfInputRef.current?.click()}
-                            className="mt-2"
+                            className="mt-2 h-10"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              pdfInputRef.current?.click();
+                            }}
                           >
                             Browse Files
                           </Button>
@@ -831,13 +735,16 @@ export default function Workbench() {
                         />
                       </div>
                       {pdfFile && (
-                        <div className="absolute top-2 right-2">
+                        <div className="absolute top-3 right-3">
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            onClick={handleRemovePdf}
-                            className="h-8 w-8"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemovePdf();
+                            }}
+                            className="h-9 w-9"
                           >
                             <X className="h-4 w-4" />
                           </Button>
@@ -846,8 +753,8 @@ export default function Workbench() {
                     </div>
 
                     {/* JSON File Upload */}
-                    <div className="space-y-2">
-                      <Label htmlFor="json-file" className="text-sm font-medium">Corrections JSON (Optional)</Label>
+                    <div className="space-y-3">
+                      <Label htmlFor="json-file" className="text-base font-medium">Corrections JSON (Optional)</Label>
                       <div className="flex items-center gap-2">
                         <Input
                           id="json-file"
@@ -855,7 +762,7 @@ export default function Workbench() {
                           accept=".json,application/json"
                           onChange={handleJsonFileChange}
                           ref={jsonInputRef}
-                          className="flex-1"
+                          className="flex-1 h-10"
                           data-testid="input-json"
                         />
                         {jsonFile && (
@@ -864,15 +771,15 @@ export default function Workbench() {
                             variant="ghost"
                             size="icon"
                             onClick={handleRemoveJson}
-                            className="h-9 w-9"
+                            className="h-10 w-10"
                           >
                             <X className="h-4 w-4" />
                           </Button>
                         )}
                       </div>
                       {jsonFile && (
-                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                          <FileText className="h-3 w-3" />
+                        <p className="text-sm text-muted-foreground flex items-center gap-2">
+                          <FileText className="h-4 w-4" />
                           {jsonFile.name} ({(jsonFile.size / 1024).toFixed(2)} KB)
                         </p>
                       )}
@@ -881,21 +788,21 @@ export default function Workbench() {
                     {/* Extracted Info */}
                     {extractedInfo && (
                       <Card className="border-primary/20 bg-primary/5">
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-sm flex items-center gap-2">
+                        <CardHeader className="pb-4">
+                          <CardTitle className="text-base flex items-center gap-2">
                             <Sparkles className="h-4 w-4 text-primary" />
                             Extracted Information
                           </CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div className="grid grid-cols-2 gap-4 text-sm">
                             {Object.entries(extractedInfo).filter(([_, v]) => v).map(([key, value]) => (
                               <div key={key} className="flex flex-col">
-                                <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                                <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1">
                                   {key.replace(/([A-Z])/g, " $1").trim()}
                                 </span>
                                 <span className={cn(
-                                  "mt-0.5 font-medium",
+                                  "font-medium text-foreground",
                                   key === "claimId" && "font-mono"
                                 )}>
                                   {String(value)}
@@ -910,9 +817,8 @@ export default function Workbench() {
                     <Button
                       onClick={handleUpload}
                       disabled={!pdfFile || uploadMutation.isPending}
-                      className="w-full"
+                      className="w-full h-11"
                       data-testid="button-upload-submit"
-                      size="lg"
                     >
                       {uploadMutation.isPending ? (
                         <>
@@ -940,12 +846,12 @@ export default function Workbench() {
                 </DialogContent>
               </Dialog>
               
-              <Button onClick={handleSave} variant="outline" size="sm" disabled={!instance} data-testid="button-save">
-                <Save className="h-3.5 w-3.5 mr-1.5" />
+              <Button onClick={handleSave} variant="outline" disabled={!instance} data-testid="button-save" className="h-10 gap-2">
+                <Save className="h-4 w-4" />
                 Save
               </Button>
-              <Button onClick={handleDownload} variant="outline" size="sm" disabled={!instance} data-testid="button-download">
-                <Download className="h-3.5 w-3.5 mr-1.5" />
+              <Button onClick={handleDownload} variant="outline" disabled={!instance} data-testid="button-download" className="h-10 gap-2">
+                <Download className="h-4 w-4" />
                 Download
               </Button>
             </div>
@@ -955,29 +861,29 @@ export default function Workbench() {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Issues Sidebar */}
-        <aside className="w-96 border-r bg-card flex flex-col">
-          <div className="p-5 border-b bg-muted/30">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold">Issues</h2>
+        {/* Issues Sidebar - Wider */}
+        <aside className="w-[420px] border-r bg-card flex flex-col shadow-sm">
+          <div className="p-6 border-b bg-muted/30">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-semibold text-foreground">Issues</h2>
               {issueBundle && (
-                <Badge variant="secondary" className="text-xs">
+                <Badge variant="secondary" className="text-sm px-2.5 py-1">
                   {filteredIssues.length} of {issueCounts.all}
                 </Badge>
               )}
             </div>
             <Tabs value={filter} onValueChange={(v) => setFilter(v as any)} className="w-full">
-              <TabsList className="grid w-full grid-cols-4 h-9">
-                <TabsTrigger value="all" className="text-xs" data-testid="filter-all">
+              <TabsList className="grid w-full grid-cols-4 h-10">
+                <TabsTrigger value="all" className="text-sm" data-testid="filter-all">
                   All ({issueCounts.all})
                 </TabsTrigger>
-                <TabsTrigger value="open" className="text-xs" data-testid="filter-open">
+                <TabsTrigger value="open" className="text-sm" data-testid="filter-open">
                   Open ({issueCounts.open})
                 </TabsTrigger>
-                <TabsTrigger value="applied" className="text-xs" data-testid="filter-applied">
+                <TabsTrigger value="applied" className="text-sm" data-testid="filter-applied">
                   Applied ({issueCounts.applied})
                 </TabsTrigger>
-                <TabsTrigger value="rejected" className="text-xs" data-testid="filter-rejected">
+                <TabsTrigger value="rejected" className="text-sm" data-testid="filter-rejected">
                   Rejected ({issueCounts.rejected})
                 </TabsTrigger>
               </TabsList>
@@ -985,24 +891,24 @@ export default function Workbench() {
           </div>
 
           <ScrollArea className="flex-1">
-            <div className="p-4 space-y-3">
+            <div className="p-6 space-y-4">
               {!isDocumentLoaded ? (
-                <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-                  <div className="p-4 rounded-full bg-muted mb-4">
-                    <FileText className="h-8 w-8 text-muted-foreground" />
+                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                  <div className="p-5 rounded-full bg-muted mb-5">
+                    <FileText className="h-10 w-10 text-muted-foreground" />
                   </div>
-                  <p className="text-sm font-medium text-foreground mb-1">No document loaded</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-base font-medium text-foreground mb-2">No document loaded</p>
+                  <p className="text-sm text-muted-foreground">
                     Select a claim and document, then click Load to view issues
                   </p>
                 </div>
               ) : filteredIssues.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-                  <div className="p-4 rounded-full bg-green-50 dark:bg-green-950 mb-4">
-                    <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400" />
+                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                  <div className="p-5 rounded-full bg-green-50 dark:bg-green-950/30 mb-5">
+                    <CheckCircle2 className="h-10 w-10 text-green-600 dark:text-green-400" />
                   </div>
-                  <p className="text-sm font-medium text-foreground mb-1">No issues found</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-base font-medium text-foreground mb-2">No issues found</p>
+                  <p className="text-sm text-muted-foreground">
                     {filter === "all" 
                       ? "This document has no issues to correct"
                       : `No ${filter} issues found`}
@@ -1019,7 +925,7 @@ export default function Workbench() {
                     <Card 
                       key={issue.issueId} 
                       className={cn(
-                        "cursor-pointer transition-all hover:shadow-md border-l-4",
+                        "cursor-pointer transition-all hover:shadow-lg border-l-4 shadow-sm",
                         status === "OPEN" && "border-l-primary",
                         status === "APPLIED" && "border-l-green-500",
                         status === "REJECTED" && "border-l-gray-400"
@@ -1027,51 +933,51 @@ export default function Workbench() {
                       onClick={() => handleIssueClick(issue)}
                       data-testid={`issue-${issue.issueId}`}
                     >
-                      <CardHeader className="pb-3">
-                        <div className="flex items-start justify-between gap-2">
+                      <CardHeader className="pb-4">
+                        <div className="flex items-start justify-between gap-3 mb-3">
                           <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <SeverityIcon className={cn("h-4 w-4 flex-shrink-0", getSeverityColor(issue.severity).split(" ")[0])} />
+                            <SeverityIcon className={cn("h-5 w-5 flex-shrink-0", getSeverityColor(issue.severity).split(" ")[0])} />
                             <Badge 
                               variant={statusInfo.variant} 
-                              className="text-xs flex items-center gap-1" 
+                              className="text-sm flex items-center gap-1.5 px-2.5 py-1" 
                               data-testid={`status-${issue.issueId}`}
                             >
-                              <StatusIcon className="h-3 w-3" />
+                              <StatusIcon className="h-3.5 w-3.5" />
                               {statusInfo.label}
                             </Badge>
                           </div>
                           <Badge 
                             variant={issue.severity === "critical" ? "destructive" : "outline"} 
-                            className={cn("text-xs", getSeverityColor(issue.severity))}
+                            className={cn("text-sm px-2.5 py-1", getSeverityColor(issue.severity))}
                           >
                             {issue.severity}
                           </Badge>
                         </div>
-                        <CardTitle className="text-sm mt-2 line-clamp-2">
+                        <CardTitle className="text-base leading-snug">
                           {issue.label || issue.type}
                         </CardTitle>
                       </CardHeader>
-                      <CardContent className="pt-0 space-y-3">
-                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <FileText className="h-3 w-3" />
+                      <CardContent className="pt-0 space-y-4">
+                        <div className="flex items-center gap-5 text-sm text-muted-foreground">
+                          <span className="flex items-center gap-1.5">
+                            <FileText className="h-4 w-4" />
                             Page {issue.pageIndex + 1}
                           </span>
-                          <span className="flex items-center gap-1">
-                            <Info className="h-3 w-3" />
+                          <span className="flex items-center gap-1.5">
+                            <Info className="h-4 w-4" />
                             {Math.round(issue.confidence * 100)}% confidence
                           </span>
                         </div>
 
                         {issue.foundValue && issue.expectedValue && (
-                          <div className="space-y-2 p-3 rounded-md bg-muted/50 border">
-                            <div className="flex items-start gap-2">
-                              <span className="text-xs text-muted-foreground min-w-[60px]">Found:</span>
-                              <span className="text-xs font-mono flex-1 break-all">{issue.foundValue}</span>
+                          <div className="space-y-3 p-4 rounded-lg bg-muted/50 border">
+                            <div className="flex items-start gap-3">
+                              <span className="text-sm text-muted-foreground min-w-[70px] font-medium">Found:</span>
+                              <span className="text-sm font-mono flex-1 break-all text-foreground">{issue.foundValue}</span>
                             </div>
-                            <div className="flex items-start gap-2">
-                              <span className="text-xs text-muted-foreground min-w-[60px]">Expected:</span>
-                              <span className="text-xs font-mono flex-1 break-all text-green-600 dark:text-green-400">{issue.expectedValue}</span>
+                            <div className="flex items-start gap-3">
+                              <span className="text-sm text-muted-foreground min-w-[70px] font-medium">Expected:</span>
+                              <span className="text-sm font-mono flex-1 break-all text-green-600 dark:text-green-400 font-medium">{issue.expectedValue}</span>
                             </div>
                           </div>
                         )}
@@ -1080,41 +986,40 @@ export default function Workbench() {
                           <div className="flex gap-2 pt-2">
                             {issue.suggestedFix.strategy === "auto" && (
                               <Button
-                                size="sm"
-                                className="h-8 text-xs flex-1"
+                                className="h-10 text-sm flex-1"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleApplySuggestedFix(issue);
                                 }}
                                 data-testid={`button-apply-${issue.issueId}`}
                               >
-                                <CheckCircle2 className="h-3 w-3 mr-1.5" />
+                                <CheckCircle2 className="h-4 w-4 mr-2" />
                                 Apply Fix
                               </Button>
                             )}
                             <Button
-                              size="sm"
                               variant="outline"
-                              className="h-8 text-xs px-3"
+                              size="icon"
+                              className="h-10 w-10"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleManualEdit(issue);
                               }}
                               data-testid={`button-manual-${issue.issueId}`}
                             >
-                              <Edit3 className="h-3 w-3" />
+                              <Edit3 className="h-4 w-4" />
                             </Button>
                             <Button
-                              size="sm"
                               variant="outline"
-                              className="h-8 text-xs px-3"
+                              size="icon"
+                              className="h-10 w-10"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleReject(issue);
                               }}
                               data-testid={`button-reject-${issue.issueId}`}
                             >
-                              <XCircle className="h-3 w-3" />
+                              <XCircle className="h-4 w-4" />
                             </Button>
                           </div>
                         )}
@@ -1130,31 +1035,31 @@ export default function Workbench() {
         {/* Document Viewer */}
         <main className="flex-1 bg-muted/20 relative">
           {viewerLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-background/90 backdrop-blur-sm z-10">
-              <div className="flex flex-col items-center gap-4">
+            <div className="absolute inset-0 flex items-center justify-center bg-background/95 backdrop-blur-sm z-10">
+              <div className="flex flex-col items-center gap-6">
                 <div className="relative">
                   <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
-                  <div className="relative p-4 rounded-full bg-primary/10">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <div className="relative p-5 rounded-full bg-primary/10">
+                    <Loader2 className="h-10 w-10 animate-spin text-primary" />
                   </div>
                 </div>
                 <div className="text-center">
-                  <p className="text-sm font-medium text-foreground mb-1">Loading document viewer</p>
-                  <p className="text-xs text-muted-foreground">Please wait...</p>
+                  <p className="text-base font-semibold text-foreground mb-2">Loading document viewer</p>
+                  <p className="text-sm text-muted-foreground">Please wait...</p>
                 </div>
               </div>
             </div>
           )}
           
           {!isDocumentLoaded ? (
-            <div className="h-full flex items-center justify-center p-8">
-              <div className="text-center space-y-4 max-w-md">
-                <div className="p-6 rounded-full bg-muted mx-auto w-fit">
-                  <FileText className="h-12 w-12 text-muted-foreground" />
+            <div className="h-full flex items-center justify-center p-12">
+              <div className="text-center space-y-6 max-w-lg">
+                <div className="p-8 rounded-full bg-muted mx-auto w-fit">
+                  <FileText className="h-16 w-16 text-muted-foreground" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-foreground mb-2">Ready to begin</h3>
-                  <p className="text-sm text-muted-foreground">
+                  <h3 className="text-xl font-semibold text-foreground mb-3">Ready to begin</h3>
+                  <p className="text-base text-muted-foreground leading-relaxed">
                     Select a claim and document from the header, then click Load to start reviewing and correcting issues.
                   </p>
                 </div>
