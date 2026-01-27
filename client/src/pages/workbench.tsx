@@ -16,7 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { 
@@ -40,9 +40,12 @@ import {
   Clock,
   FileCheck,
   LogOut,
-  Settings
+  Settings,
+  UserCircle,
+  LogIn
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { STORAGE_KEY_OPERATOR } from "@/lib/theme";
 
 export default function Workbench() {
   const { toast } = useToast();
@@ -51,7 +54,9 @@ export default function Workbench() {
   const { user, signOut, isConfigured: isAuthConfigured, loading: authLoading } = useAuth();
   const [selectedClaimId, setSelectedClaimId] = useState<string>("");
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
-  const username = user?.email || "operator-1";
+  const username =
+    user?.email ||
+    (typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY_OPERATOR) ?? "operator-1" : "operator-1");
   const [issueStatuses, setIssueStatuses] = useState<Map<string, IssueStatus>>(new Map());
   const [issueAnnotations, setIssueAnnotations] = useState<Map<string, string>>(new Map());
   const [filter, setFilter] = useState<"all" | "open" | "applied" | "rejected">("all");
@@ -633,36 +638,53 @@ export default function Workbench() {
 
             {/* Right Actions */}
             <div className="flex items-center gap-2 shrink-0">
-              {isAuthConfigured && user ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="h-10 gap-2" data-testid="button-user-menu">
-                      <User className="h-4 w-4" />
-                      <span className="max-w-[140px] truncate text-sm">{user.email}</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuItem disabled className="text-sm text-muted-foreground">
-                      Signed in as {user.email}
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => signOut().then(() => setLocation('/login'))} data-testid="button-signout">
-                      <LogOut className="h-4 w-4 mr-2" />
-                      Sign Out
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : isAuthConfigured ? (
-                <Button variant="outline" className="h-10" onClick={() => setLocation('/login')} data-testid="button-login">
-                  <User className="h-4 w-4 mr-2" />
-                  Sign In
-                </Button>
-              ) : (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-md border bg-muted/50 h-10">
-                  <User className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">{username}</span>
-                </div>
-              )}
+              {/* Profile & settings — one icon, no "Sign In" on dashboard */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" className="h-10 w-10 shrink-0" data-testid="button-account-menu" aria-label="Account and settings">
+                    <Settings className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  {isAuthConfigured && user ? (
+                    <>
+                      <DropdownMenuLabel className="font-display font-semibold text-foreground">Account</DropdownMenuLabel>
+                      <DropdownMenuItem disabled className="text-muted-foreground text-xs">
+                        {user.email}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => setLocation("/profile")} data-testid="button-profile">
+                        <UserCircle className="h-4 w-4 mr-2" />
+                        Profile
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setLocation("/settings")} data-testid="button-settings">
+                        <Settings className="h-4 w-4 mr-2" />
+                        Settings
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => signOut().then(() => setLocation('/login'))} data-testid="button-signout">
+                        <LogOut className="h-4 w-4 mr-2" />
+                        Sign Out
+                      </DropdownMenuItem>
+                    </>
+                  ) : isAuthConfigured ? (
+                    <>
+                      <DropdownMenuLabel className="font-display font-semibold text-foreground">Account</DropdownMenuLabel>
+                      <DropdownMenuItem onClick={() => setLocation('/login')} data-testid="button-login">
+                        <LogIn className="h-4 w-4 mr-2" />
+                        Sign In
+                      </DropdownMenuItem>
+                    </>
+                  ) : (
+                    <>
+                      <DropdownMenuLabel className="font-display font-semibold text-foreground">Operator</DropdownMenuLabel>
+                      <DropdownMenuItem disabled className="text-muted-foreground text-xs">
+                        Using operator: {username}
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
                 <DialogTrigger asChild>

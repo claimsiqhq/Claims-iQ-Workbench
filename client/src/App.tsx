@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/use-auth";
 import Workbench from "@/pages/workbench";
 import LoginPage from "@/pages/login";
+import ProfilePage from "@/pages/profile";
+import SettingsPage from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -13,6 +15,8 @@ function Router() {
     <Switch>
       <Route path="/" component={Workbench} />
       <Route path="/login" component={LoginPage} />
+      <Route path="/profile" component={ProfilePage} />
+      <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -49,15 +49,38 @@ npm run dev
 
 ---
 
+## Database & Supabase
+
+When Supabase is configured, the app uses **Supabase** for persistence (claims, documents, issues, audit logs) and **Supabase Auth** for sign-in, profile, and sign-out.
+
+**Schema**
+
+- `supabase/schema.sql` defines: `claims`, `documents`, `issues`, `audit_logs`, RLS policies, and storage bucket `documents`.
+- **You must run this SQL once** in your Supabase project: **Dashboard → SQL Editor → paste and run** `supabase/schema.sql`.
+- After that, the database is ready. The server’s `SupabaseStorage` checks for the schema and logs if it’s missing.
+
+**Profile & Settings**
+
+- **Profile**: Uses Supabase Auth only (`auth.users` + session). No extra tables.
+- **Settings** (theme, default operator ID): Stored in the browser via `localStorage`; no database.
+
+**When Supabase is not configured**
+
+- The server uses in-memory storage (`MemStorage`). No database or migrations are required.
+
+---
+
 ## Key Environment Variables
 
 Backend:
-- DOC_ENGINE_URL
-- DOC_ENGINE_API_TOKEN
-- JWT_PRIVATE_KEY_PEM
+- `DATABASE_URL` — not used for app persistence; Drizzle config exists but the app uses Supabase or MemStorage.
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — required for Supabase persistence and auth.
+- `DOC_ENGINE_URL`, `DOC_ENGINE_API_TOKEN`, `JWT_PRIVATE_KEY_PEM` — Nutrient Document Engine.
+- `OPENAI_API_KEY` — optional; used for PDF extraction when uploading.
 
 Frontend:
-- VITE_API_BASE_URL
+- `VITE_API_BASE_URL`
+- `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` — for Supabase Auth (login, profile, sign-out).
 
 ---
 
