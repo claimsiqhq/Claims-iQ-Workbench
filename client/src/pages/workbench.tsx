@@ -565,32 +565,32 @@ export default function Workbench() {
       
       {/* Claims IQ Header */}
       <header className="border-b border-[#E3DFE8] bg-white shadow-sm">
-        <div className="px-6 py-4">
-          <div className="flex items-center gap-8">
+        <div className="px-4 md:px-6 py-3">
+          <div className="flex flex-wrap items-center gap-3 md:gap-6">
             {/* Claims IQ Brand */}
             <div className="flex items-center gap-3 shrink-0">
               <img
                 src="/claims-iq-logo.png"
                 alt="Claims IQ"
-                className="h-9 w-auto object-contain"
+                className="h-8 w-auto object-contain"
               />
-              <div className="hidden sm:block border-l border-[#E3DFE8] pl-4">
-                <h1 className="font-display font-extrabold text-[#342A4F] tracking-tight" style={{ fontSize: "1.125rem" }}>
+              <div className="hidden lg:block border-l border-[#E3DFE8] pl-3">
+                <h1 className="font-display font-extrabold text-[#342A4F] tracking-tight text-base">
                   Claims IQ
                 </h1>
-                <p className="text-[#7763B7] font-sans text-sm font-medium">Correction Workbench</p>
+                <p className="text-[#7763B7] font-sans text-xs font-medium">Correction Workbench</p>
               </div>
             </div>
 
-            <Separator orientation="vertical" className="h-10 bg-[#E3DFE8]" />
+            <Separator orientation="vertical" className="h-8 bg-[#E3DFE8] hidden md:block" />
 
             {/* Document Selection */}
-            <div className="flex flex-1 items-center gap-4 min-w-0">
-              <div className="flex items-center gap-2 min-w-0 max-w-[200px]">
-                <Label className="text-xs font-semibold text-[#342A4F] uppercase tracking-wider shrink-0">Claim</Label>
+            <div className="flex flex-wrap items-center gap-2 md:gap-3 flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <Label className="text-xs font-semibold text-[#342A4F] uppercase tracking-wider shrink-0 hidden sm:block">Claim</Label>
                 <Select value={selectedClaimId} onValueChange={setSelectedClaimId} data-testid="select-claim">
-                  <SelectTrigger className="h-10 w-[160px] rounded-lg border-2 border-[#E3DFE8] bg-[#F0EDF4]/50 font-sans text-sm focus:border-[#7763B7] focus:ring-[#7763B7]/20">
-                    <SelectValue placeholder="Select..." />
+                  <SelectTrigger className="h-9 w-[120px] md:w-[140px] rounded-lg border-2 border-[#E3DFE8] bg-[#F0EDF4]/50 font-sans text-sm focus:border-[#7763B7] focus:ring-[#7763B7]/20">
+                    <SelectValue placeholder="Claim..." />
                   </SelectTrigger>
                   <SelectContent>
                     {claims?.map((claim) => (
@@ -602,18 +602,18 @@ export default function Workbench() {
                 </Select>
               </div>
 
-              <ChevronRight className="h-5 w-5 text-[#9D8BBF] shrink-0" />
+              <ChevronRight className="h-4 w-4 text-[#9D8BBF] shrink-0 hidden sm:block" />
 
-              <div className="flex items-center gap-2 min-w-0 max-w-[280px]">
-                <Label className="text-xs font-semibold text-[#342A4F] uppercase tracking-wider shrink-0">Document</Label>
+              <div className="flex items-center gap-1.5">
+                <Label className="text-xs font-semibold text-[#342A4F] uppercase tracking-wider shrink-0 hidden sm:block">Doc</Label>
                 <Select 
                   value={selectedDocumentId} 
                   onValueChange={setSelectedDocumentId} 
                   disabled={!selectedClaimId}
                   data-testid="select-document"
                 >
-                  <SelectTrigger className="h-10 w-[180px] rounded-lg border-2 border-[#E3DFE8] bg-[#F0EDF4]/50 font-sans text-sm focus:border-[#7763B7] focus:ring-[#7763B7]/20">
-                    <SelectValue placeholder="Select..." />
+                  <SelectTrigger className="h-9 w-[120px] md:w-[160px] rounded-lg border-2 border-[#E3DFE8] bg-[#F0EDF4]/50 font-sans text-sm focus:border-[#7763B7] focus:ring-[#7763B7]/20">
+                    <SelectValue placeholder="Document..." />
                   </SelectTrigger>
                   <SelectContent>
                     {documents?.map((doc) => (
@@ -629,19 +629,19 @@ export default function Workbench() {
                 onClick={handleLoadDocument} 
                 disabled={!selectedClaimId || !selectedDocumentId || isDocumentLoaded}
                 data-testid="button-load"
-                className="h-10 px-5"
+                className="h-9 px-3 md:px-4"
+                size="sm"
               >
-                <FileCheck className="h-4 w-4 mr-2" />
-                Load Document
+                <FileCheck className="h-4 w-4 md:mr-1.5" />
+                <span className="hidden md:inline">Load</span>
               </Button>
             </div>
 
             {/* Right Actions */}
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Profile & settings — one icon, no "Sign In" on dashboard */}
+            <div className="flex items-center gap-1.5 shrink-0 ml-auto">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" className="h-10 w-10 shrink-0" data-testid="button-account-menu" aria-label="Account and settings">
+                  <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" data-testid="button-account-menu" aria-label="Account and settings">
                     <Settings className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -688,9 +688,9 @@ export default function Workbench() {
 
               <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
                 <DialogTrigger asChild>
-                  <Button variant="outline" className="h-10 gap-2" data-testid="button-upload">
+                  <Button variant="outline" className="h-9 gap-1.5 px-3" data-testid="button-upload">
                     <Upload className="h-4 w-4" />
-                    Upload
+                    <span className="hidden sm:inline">Upload</span>
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
