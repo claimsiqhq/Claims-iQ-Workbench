@@ -585,12 +585,12 @@ export default function Workbench() {
             <Separator orientation="vertical" className="h-10 bg-[#E3DFE8]" />
 
             {/* Document Selection */}
-            <div className="flex flex-1 items-end gap-4 min-w-0">
-              <div className="flex-1 min-w-0 max-w-[200px]">
-                <Label className="text-xs font-semibold text-[#342A4F] mb-1.5 block uppercase tracking-wider">Claim</Label>
+            <div className="flex flex-1 items-center gap-4 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 max-w-[200px]">
+                <Label className="text-xs font-semibold text-[#342A4F] uppercase tracking-wider shrink-0">Claim</Label>
                 <Select value={selectedClaimId} onValueChange={setSelectedClaimId} data-testid="select-claim">
-                  <SelectTrigger className="h-10 w-full rounded-lg border-2 border-[#E3DFE8] bg-[#F0EDF4]/50 font-sans text-sm focus:border-[#7763B7] focus:ring-[#7763B7]/20">
-                    <SelectValue placeholder="Select claim..." />
+                  <SelectTrigger className="h-10 w-[160px] rounded-lg border-2 border-[#E3DFE8] bg-[#F0EDF4]/50 font-sans text-sm focus:border-[#7763B7] focus:ring-[#7763B7]/20">
+                    <SelectValue placeholder="Select..." />
                   </SelectTrigger>
                   <SelectContent>
                     {claims?.map((claim) => (
@@ -604,16 +604,16 @@ export default function Workbench() {
 
               <ChevronRight className="h-5 w-5 text-[#9D8BBF] shrink-0" />
 
-              <div className="flex-1 min-w-0 max-w-[240px]">
-                <Label className="text-xs font-semibold text-[#342A4F] mb-1.5 block uppercase tracking-wider">Document</Label>
+              <div className="flex items-center gap-2 min-w-0 max-w-[280px]">
+                <Label className="text-xs font-semibold text-[#342A4F] uppercase tracking-wider shrink-0">Document</Label>
                 <Select 
                   value={selectedDocumentId} 
                   onValueChange={setSelectedDocumentId} 
                   disabled={!selectedClaimId}
                   data-testid="select-document"
                 >
-                  <SelectTrigger className="h-10 w-full rounded-lg border-2 border-[#E3DFE8] bg-[#F0EDF4]/50 font-sans text-sm focus:border-[#7763B7] focus:ring-[#7763B7]/20">
-                    <SelectValue placeholder="Select document..." />
+                  <SelectTrigger className="h-10 w-[180px] rounded-lg border-2 border-[#E3DFE8] bg-[#F0EDF4]/50 font-sans text-sm focus:border-[#7763B7] focus:ring-[#7763B7]/20">
+                    <SelectValue placeholder="Select..." />
                   </SelectTrigger>
                   <SelectContent>
                     {documents?.map((doc) => (
