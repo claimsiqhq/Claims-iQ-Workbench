@@ -42,8 +42,12 @@ import {
   LogOut,
   Settings,
   UserCircle,
-  LogIn
+  LogIn,
+  Bell,
+  Monitor,
+  FileDown
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { STORAGE_KEY_OPERATOR } from "@/lib/theme";
 
@@ -52,6 +56,14 @@ export default function Workbench() {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const { user, signOut, isConfigured: isAuthConfigured, loading: authLoading } = useAuth();
+  
+  // Redirect to login if auth is configured but user is not signed in
+  useEffect(() => {
+    if (!authLoading && isAuthConfigured && !user) {
+      setLocation('/login');
+    }
+  }, [authLoading, isAuthConfigured, user, setLocation]);
+
   const [selectedClaimId, setSelectedClaimId] = useState<string>("");
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
   const username =
@@ -74,6 +86,33 @@ export default function Workbench() {
   const [globalDragging, setGlobalDragging] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const dragCounterRef = useRef(0);
+  
+  // Settings state
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [notifyOnApply, setNotifyOnApply] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('settings_notify_apply') === 'true';
+    }
+    return false;
+  });
+  const [notifyOnReject, setNotifyOnReject] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('settings_notify_reject') === 'true';
+    }
+    return false;
+  });
+  const [defaultFilter, setDefaultFilter] = useState<"all" | "open" | "applied" | "rejected">(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('settings_default_filter') as any) || 'all';
+    }
+    return 'all';
+  });
+  const [itemsPerPage, setItemsPerPage] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return parseInt(localStorage.getItem('settings_items_per_page') || '25', 10);
+    }
+    return 25;
+  });
 
   const { data: health } = useQuery({
     queryKey: ["health"],
@@ -639,52 +678,213 @@ export default function Workbench() {
 
             {/* Right Actions */}
             <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" data-testid="button-account-menu" aria-label="Account and settings">
+              {/* Settings Dialog */}
+              <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" data-testid="button-settings" aria-label="Settings">
                     <Settings className="h-4 w-4" />
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  {isAuthConfigured && user ? (
-                    <>
-                      <DropdownMenuLabel className="font-display font-semibold text-foreground">Account</DropdownMenuLabel>
-                      <DropdownMenuItem disabled className="text-muted-foreground text-xs">
-                        {user.email}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => setLocation("/profile")} data-testid="button-profile">
-                        <UserCircle className="h-4 w-4 mr-2" />
-                        Profile
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setLocation("/settings")} data-testid="button-settings">
-                        <Settings className="h-4 w-4 mr-2" />
-                        Settings
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => signOut().then(() => setLocation('/login'))} data-testid="button-signout">
-                        <LogOut className="h-4 w-4 mr-2" />
-                        Sign Out
-                      </DropdownMenuItem>
-                    </>
-                  ) : isAuthConfigured ? (
-                    <>
-                      <DropdownMenuLabel className="font-display font-semibold text-foreground">Account</DropdownMenuLabel>
-                      <DropdownMenuItem onClick={() => setLocation('/login')} data-testid="button-login">
-                        <LogIn className="h-4 w-4 mr-2" />
-                        Sign In
-                      </DropdownMenuItem>
-                    </>
-                  ) : (
-                    <>
-                      <DropdownMenuLabel className="font-display font-semibold text-foreground">Operator</DropdownMenuLabel>
-                      <DropdownMenuItem disabled className="text-muted-foreground text-xs">
-                        Using operator: {username}
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[500px]">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <Settings className="h-5 w-5" />
+                      Settings
+                    </DialogTitle>
+                    <DialogDescription>
+                      Configure your preferences for the workbench.
+                    </DialogDescription>
+                  </DialogHeader>
+                  
+                  <div className="space-y-6 py-4">
+                    {/* Account Section */}
+                    {user && (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <UserCircle className="h-4 w-4 text-muted-foreground" />
+                          <h4 className="text-sm font-medium">Account</h4>
+                        </div>
+                        <div className="pl-6 space-y-2">
+                          <p className="text-sm text-muted-foreground">{user.email}</p>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => {
+                              signOut().then(() => setLocation('/login'));
+                              setSettingsDialogOpen(false);
+                            }}
+                            data-testid="button-signout"
+                          >
+                            <LogOut className="h-4 w-4 mr-2" />
+                            Sign Out
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    <Separator />
+
+                    {/* Notification Preferences */}
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Bell className="h-4 w-4 text-muted-foreground" />
+                        <h4 className="text-sm font-medium">Notifications</h4>
+                      </div>
+                      <div className="pl-6 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="notify-apply" className="text-sm">Notify when correction applied</Label>
+                          <Switch 
+                            id="notify-apply" 
+                            checked={notifyOnApply}
+                            onCheckedChange={(checked) => {
+                              setNotifyOnApply(checked);
+                              localStorage.setItem('settings_notify_apply', String(checked));
+                            }}
+                            data-testid="switch-notify-apply"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="notify-reject" className="text-sm">Notify when correction rejected</Label>
+                          <Switch 
+                            id="notify-reject" 
+                            checked={notifyOnReject}
+                            onCheckedChange={(checked) => {
+                              setNotifyOnReject(checked);
+                              localStorage.setItem('settings_notify_reject', String(checked));
+                            }}
+                            data-testid="switch-notify-reject"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Display Settings */}
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Monitor className="h-4 w-4 text-muted-foreground" />
+                        <h4 className="text-sm font-medium">Display</h4>
+                      </div>
+                      <div className="pl-6 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="default-filter" className="text-sm">Default issue filter</Label>
+                          <Select 
+                            value={defaultFilter} 
+                            onValueChange={(value: "all" | "open" | "applied" | "rejected") => {
+                              setDefaultFilter(value);
+                              setFilter(value);
+                              localStorage.setItem('settings_default_filter', value);
+                            }}
+                          >
+                            <SelectTrigger className="w-[120px] h-8" id="default-filter" data-testid="select-default-filter">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All</SelectItem>
+                              <SelectItem value="open">Open</SelectItem>
+                              <SelectItem value="applied">Applied</SelectItem>
+                              <SelectItem value="rejected">Rejected</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="items-per-page" className="text-sm">Issues per page</Label>
+                          <Select 
+                            value={String(itemsPerPage)} 
+                            onValueChange={(value) => {
+                              const num = parseInt(value, 10);
+                              setItemsPerPage(num);
+                              localStorage.setItem('settings_items_per_page', value);
+                            }}
+                          >
+                            <SelectTrigger className="w-[80px] h-8" id="items-per-page" data-testid="select-items-per-page">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="10">10</SelectItem>
+                              <SelectItem value="25">25</SelectItem>
+                              <SelectItem value="50">50</SelectItem>
+                              <SelectItem value="100">100</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Export Options */}
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <FileDown className="h-4 w-4 text-muted-foreground" />
+                        <h4 className="text-sm font-medium">Export</h4>
+                      </div>
+                      <div className="pl-6 space-y-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          className="w-full justify-start"
+                          onClick={() => {
+                            // Export audit logs as JSON
+                            const logs = JSON.stringify({
+                              exportedAt: new Date().toISOString(),
+                              claimId: selectedClaimId,
+                              documentId: selectedDocumentId,
+                              issueStatuses: Object.fromEntries(issueStatuses),
+                            }, null, 2);
+                            const blob = new Blob([logs], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `audit-log-${selectedClaimId || 'all'}-${new Date().toISOString().split('T')[0]}.json`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                            toast({ title: "Audit Log Exported", description: "Download started" });
+                          }}
+                          data-testid="button-export-audit"
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          Export Audit Log
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          className="w-full justify-start"
+                          onClick={() => {
+                            // Export issues report as CSV
+                            const issues = issueBundle?.issues || [];
+                            const csv = [
+                              ['Issue ID', 'Type', 'Severity', 'Status', 'Label', 'Found Value', 'Expected Value'].join(','),
+                              ...issues.map(issue => [
+                                issue.issueId,
+                                issue.type,
+                                issue.severity,
+                                issueStatuses.get(issue.issueId) || 'OPEN',
+                                `"${(issue.label || '').replace(/"/g, '""')}"`,
+                                `"${(issue.foundValue || '').replace(/"/g, '""')}"`,
+                                `"${(issue.expectedValue || '').replace(/"/g, '""')}"`
+                              ].join(','))
+                            ].join('\n');
+                            const blob = new Blob([csv], { type: 'text/csv' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `issues-report-${selectedClaimId || 'all'}-${new Date().toISOString().split('T')[0]}.csv`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                            toast({ title: "Report Exported", description: "Download started" });
+                          }}
+                          data-testid="button-export-report"
+                        >
+                          <FileText className="h-4 w-4 mr-2" />
+                          Export Issues Report (CSV)
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
 
               <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
                 <DialogTrigger asChild>
