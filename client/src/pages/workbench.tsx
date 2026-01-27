@@ -558,29 +558,33 @@ export default function Workbench() {
         </div>
       )}
       
-      {/* Professional Header - Increased Size */}
-      <header className="border-b bg-card shadow-sm">
-        <div className="px-6 py-5">
-          <div className="flex items-center gap-6">
-            {/* Branding Section */}
+      {/* Claims IQ Header */}
+      <header className="border-b border-[#E3DFE8] bg-white shadow-sm">
+        <div className="px-6 py-4">
+          <div className="flex items-center gap-8">
+            {/* Claims IQ Brand */}
             <div className="flex items-center gap-3 shrink-0">
-              <div className="p-2.5 rounded-lg bg-primary/10">
-                <FileText className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <h1 className="text-lg font-display font-semibold text-foreground">Claims Workbench</h1>
-                <p className="text-xs text-muted-foreground hidden lg:block">Document review and correction</p>
+              <img
+                src="/claims-iq-logo.png"
+                alt="Claims IQ"
+                className="h-9 w-auto object-contain"
+              />
+              <div className="hidden sm:block border-l border-[#E3DFE8] pl-4">
+                <h1 className="font-display font-extrabold text-[#342A4F] tracking-tight" style={{ fontSize: "1.125rem" }}>
+                  Claims IQ
+                </h1>
+                <p className="text-[#7763B7] font-sans text-sm font-medium">Correction Workbench</p>
               </div>
             </div>
 
-            <Separator orientation="vertical" className="h-10" />
+            <Separator orientation="vertical" className="h-10 bg-[#E3DFE8]" />
 
             {/* Document Selection */}
-            <div className="flex items-end gap-4 flex-1 min-w-0">
-              <div className="flex-1 min-w-0">
-                <Label className="text-sm font-medium text-foreground mb-2 block">Claim</Label>
+            <div className="flex flex-1 items-end gap-4 min-w-0">
+              <div className="flex-1 min-w-0 max-w-[200px]">
+                <Label className="text-xs font-semibold text-[#342A4F] mb-1.5 block uppercase tracking-wider">Claim</Label>
                 <Select value={selectedClaimId} onValueChange={setSelectedClaimId} data-testid="select-claim">
-                  <SelectTrigger className="h-10 w-full">
+                  <SelectTrigger className="h-10 w-full rounded-lg border-2 border-[#E3DFE8] bg-[#F0EDF4]/50 font-sans text-sm focus:border-[#7763B7] focus:ring-[#7763B7]/20">
                     <SelectValue placeholder="Select claim..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -593,17 +597,17 @@ export default function Workbench() {
                 </Select>
               </div>
 
-              <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 mb-2.5" />
+              <ChevronRight className="h-5 w-5 text-[#9D8BBF] shrink-0" />
 
-              <div className="flex-1 min-w-0">
-                <Label className="text-sm font-medium text-foreground mb-2 block">Document</Label>
+              <div className="flex-1 min-w-0 max-w-[240px]">
+                <Label className="text-xs font-semibold text-[#342A4F] mb-1.5 block uppercase tracking-wider">Document</Label>
                 <Select 
                   value={selectedDocumentId} 
                   onValueChange={setSelectedDocumentId} 
                   disabled={!selectedClaimId}
                   data-testid="select-document"
                 >
-                  <SelectTrigger className="h-10 w-full">
+                  <SelectTrigger className="h-10 w-full rounded-lg border-2 border-[#E3DFE8] bg-[#F0EDF4]/50 font-sans text-sm focus:border-[#7763B7] focus:ring-[#7763B7]/20">
                     <SelectValue placeholder="Select document..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -620,7 +624,7 @@ export default function Workbench() {
                 onClick={handleLoadDocument} 
                 disabled={!selectedClaimId || !selectedDocumentId || isDocumentLoaded}
                 data-testid="button-load"
-                className="h-10 mb-0"
+                className="h-10 px-5"
               >
                 <FileCheck className="h-4 w-4 mr-2" />
                 Load Document
@@ -628,7 +632,7 @@ export default function Workbench() {
             </div>
 
             {/* Right Actions */}
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               {isAuthConfigured && user ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -860,12 +864,12 @@ export default function Workbench() {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Issues Sidebar - Wider */}
-        <aside className="w-[420px] border-r bg-card flex flex-col shadow-sm">
-          <div className="p-6 border-b bg-muted/30">
+      <div className="flex-1 flex overflow-hidden bg-[#F0EDF4]">
+        {/* Issues Sidebar */}
+        <aside className="w-[420px] border-r border-[#E3DFE8] bg-white flex flex-col shadow-sm">
+          <div className="p-6 border-b border-[#E3DFE8] bg-[#F0E6FA]/30">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-semibold text-foreground">Issues</h2>
+              <h2 className="font-display font-bold text-[#342A4F] text-lg">Issues</h2>
               {issueBundle && (
                 <Badge variant="secondary" className="text-sm px-2.5 py-1">
                   {filteredIssues.length} of {issueCounts.all}
@@ -1033,7 +1037,7 @@ export default function Workbench() {
         </aside>
 
         {/* Document Viewer */}
-        <main className="flex-1 bg-muted/20 relative">
+        <main className="flex-1 bg-[#F0E6FA]/20 relative">
           {viewerLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/95 backdrop-blur-sm z-10">
               <div className="flex flex-col items-center gap-6">
