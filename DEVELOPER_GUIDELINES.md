@@ -111,7 +111,9 @@ Ship safety before speed.
   - Row Level Security (RLS) policies
 - [x] **Graceful Fallback**: Local filesystem storage when Supabase is not configured
 - [x] **Schema Validation**: Health endpoint with schema status check and warning banner
-- [x] **User Menu**: Sign-in/sign-out with user email display
+- [x] **User Menu**: Account dropdown (gear) with Profile, Settings, Sign out; Sign in only when auth configured and not logged in
+- [x] **Profile Page**: Full profile view (email, display name, last sign-in, avatar/initials) at `/profile`; redirects to login when auth configured and unauthenticated
+- [x] **Settings Page**: Theme (light/dark/system) and default operator ID at `/settings`; persisted in localStorage
 - [x] **Progress Tracking**: Upload progress with stage indicators
 - [x] **Issue Statistics**: Real-time counts of open, applied, and rejected issues
 - [x] **Professional UI Redesign**: Complete UI overhaul with proper sizing (h-10 minimum), spacing (p-6), typography (text-sm/base), and visual polish
@@ -159,7 +161,7 @@ Ship safety before speed.
 
 ### Low Priority
 
-- [ ] **Dark Mode**: Add theme toggle support
+- [x] **Dark Mode**: Theme toggle (light/dark/system) in Settings (completed)
 - [ ] **Localization**: i18n support for multi-language
 - [ ] **Accessibility**: WCAG 2.1 AA compliance audit
 - [ ] **Performance Optimization**: Virtualize long issue lists
@@ -168,6 +170,8 @@ Ship safety before speed.
 
 ### Security & Compliance
 
+- [ ] **API Auth + User-Scoped Data (Critical)**: The backend does not currently know who is calling. The client never sends a Bearer token, and routes never pass `userId` to storage. With Supabase, `getClaims()` returns all claims and uploads are not tied to a user. **Needed:** (1) Middleware to validate JWT (e.g. Supabase `auth.getUser(token)`) and attach `req.userId`; (2) Client sends `Authorization: Bearer <supabase_session_access_token>` on all API calls; (3) Pass `req.userId` into every storage call (`getClaims(userId)`, `createClaim(..., userId)`, `createDocument(..., userId)`, `saveIssues(..., userId)`, `logAudit(..., userId)`) and into `uploadToSupabaseStorage(..., userId)` so files go under `userId/...`.
+- [ ] **Route Guards**: Consider redirecting unauthenticated users from `/` (workbench) to `/login` when auth is configured, if the workbench should be sign-in only. `/profile` already redirects when needed.
 - [ ] **Review JWT Exposure**: Verify Document Engine tokens are not exposed to client (see Backend Rules)
 - [ ] **Rate Limiting**: Add API rate limiting for upload and audit endpoints
 - [ ] **Input Sanitization**: Audit all user inputs for XSS/injection vectors
@@ -182,17 +186,60 @@ Ship safety before speed.
   - [ ] Integration tests
   - [ ] Build verification
 - [ ] **Monitoring**: Add error tracking (Sentry or similar)
-- [ ] **Logging**: Structured server logs with log levels
+- [ ] **Logging**: Structured server logs with log levels (request id, user id when available, status, duration)
 - [ ] **Database Migrations**: Add migration tooling (Drizzle Kit or similar)
 - [ ] **Backup Strategy**: Automated database and storage backups
 
 ### Documentation
 
 - [ ] **API Documentation**: OpenAPI/Swagger spec for all endpoints
+- [ ] **Runbook**: Short operational procedures: “Schema not valid” → run `supabase/schema.sql`; “Upload fails” → check env and Doc Engine; “Auth not working” → check Supabase URL/keys
 - [ ] **Component Storybook**: Visual component documentation
 - [ ] **Onboarding Guide**: New developer setup instructions
 - [ ] **Architecture Diagram**: Visual system architecture
-- [ ] **Runbook**: Operational procedures for common issues
+
+---
+
+## Suggestions, Enhancements & What's Next
+
+Prioritized suggestions and underdeveloped areas for planning sprints and backlog.
+
+### Critical / Security / Multi-Tenancy
+
+- **API auth + user-scoped data**: See Security & Compliance above. This is the single highest-impact change for multi-user use.
+- **Rate limiting & input hardening**: Add rate limits on `/api/documents/upload`, `/api/audit`, and other heavy or write endpoints. Keep validating all inputs (e.g. Zod) and review for XSS/injection.
+
+### Underdeveloped Features
+
+- **Tests**: Unit (schema, fix-engine, PDF parser, storage); integration (load → fix → audit, upload → parse → claim, auth flows); golden PDF samples + expected issue bundles.
+- **Document Engine**: JWT/session generation exists but requires external Document Engine. Document env vars and plug-in steps; optional: “Document Engine status” hint in UI (e.g. Settings).
+- **Viewer error handling**: `useNutrientViewer` exposes `error` when the viewer fails to load; the workbench only shows “Loading document viewer.” Add a clear error message and “Retry” or “Reload document” in the viewer area when `error` is set.
+- **Before/after preview & batch**: Before/after diff or side-by-side before applying; “Apply all open” / “Reject all” or multi-select with one confirmation.
+- **Search & keyboard**: Search/filter issues by text (type, label, found/expected). Keyboard: e.g. arrow keys between issues, Enter to apply, Esc to cancel.
+- **Undo/redo**: Revert last applied correction (requires “previous value” in audit or issue state).
+
+### UX and UI Polish
+
+- **404 page**: `not-found.tsx` uses raw `bg-gray-50` / `text-gray-900`. Use Claims IQ tokens (`bg-background`, `text-foreground`) and add “Back to Workbench” → `/`.
+- **Profile**: Read-only is done. Optional later: editable display name or avatar (Supabase `user_metadata` or `profiles` table).
+- **Settings**: Theme and default operator ID are in place. Possible additions: claim list sort default, “Document Engine” status, notification preferences.
+- **Empty and loading states**: Ensure every major section has a clear empty state (“No issues,” “No audit entries”) and consistent loading treatment.
+- **Dark mode**: Theme toggle is implemented in Settings (light/dark/system). Mark complete in Low Priority once verified.
+
+### Infrastructure and Docs
+
+- **CI/CD**: Lint, TypeScript, unit tests, build in GitHub Actions or similar.
+- **Logging and monitoring**: Structured server logs; error tracking (e.g. Sentry) with PII kept out of events.
+- **API and runbooks**: OpenAPI for all REST endpoints; short runbooks for common ops issues.
+- **Accessibility and performance**: WCAG 2.1 AA where practical; virtualize long issue lists (e.g. `react-window`) if needed.
+
+### Quick Reference — Already in Good Shape
+
+- Profile, Settings, Sign out implemented and wired.
+- Theme (light/dark/system) and default operator ID persisted and applied.
+- Supabase schema and RLS defined; run `supabase/schema.sql` in the project.
+- Health check and schema-valid banner; upload flow with drag-and-drop and extraction.
+- Claims IQ branding, layout, and navigation in place.
 
 ---
 
