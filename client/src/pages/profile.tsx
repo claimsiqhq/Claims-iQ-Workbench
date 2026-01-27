@@ -4,8 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Loader2, ArrowLeft, UserCircle, Mail, Calendar } from "lucide-react";
-import { useEffect } from "react";
+import { Loader2, ArrowLeft, UserCircle, Mail, Calendar, Save, Pencil } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
 
 function getInitials(email: string | undefined, name?: string | null): string {
   if (name && name.trim()) {
@@ -33,13 +35,61 @@ function formatDate(iso: string | undefined): string {
 
 export default function ProfilePage() {
   const [, setLocation] = useLocation();
-  const { user, session, isConfigured, loading } = useAuth();
+  const { user, session, isConfigured, loading, refreshUser } = useAuth();
+  const { toast } = useToast();
+  
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [displayNameInput, setDisplayNameInput] = useState("");
+
+  const displayName =
+    (user?.user_metadata as { full_name?: string; name?: string } | undefined)?.full_name ??
+    (user?.user_metadata as { full_name?: string; name?: string } | undefined)?.name ??
+    null;
 
   useEffect(() => {
     if (!loading && isConfigured && !user) {
       setLocation("/login");
     }
   }, [loading, isConfigured, user, setLocation]);
+
+  useEffect(() => {
+    if (displayName) {
+      setDisplayNameInput(displayName);
+    }
+  }, [displayName]);
+
+  const handleSave = async () => {
+    if (!supabase) {
+      toast({ title: "Error", description: "Authentication not configured", variant: "destructive" });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        data: { full_name: displayNameInput.trim() }
+      });
+
+      if (error) throw error;
+
+      // Refresh user data
+      if (refreshUser) {
+        await refreshUser();
+      }
+
+      toast({ title: "Profile Updated", description: "Your display name has been saved." });
+      setIsEditing(false);
+    } catch (err: any) {
+      toast({ 
+        title: "Error", 
+        description: err.message || "Failed to update profile", 
+        variant: "destructive" 
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -53,10 +103,6 @@ export default function ProfilePage() {
     return null;
   }
 
-  const displayName =
-    (user?.user_metadata as { full_name?: string; name?: string } | undefined)?.full_name ??
-    (user?.user_metadata as { full_name?: string; name?: string } | undefined)?.name ??
-    null;
   const lastSignIn =
     (user as { last_sign_in_at?: string } | undefined)?.last_sign_in_at ??
     (session?.user as { last_sign_in_at?: string } | undefined)?.last_sign_in_at;
@@ -87,12 +133,23 @@ export default function ProfilePage() {
               >
                 {getInitials(user?.email ?? undefined, displayName)}
               </div>
-              <div>
+              <div className="flex-1">
                 <CardTitle className="font-display text-xl">
                   {displayName || "Profile"}
                 </CardTitle>
                 <CardDescription>Your account details</CardDescription>
               </div>
+              {!isEditing && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsEditing(true)}
+                  data-testid="button-edit-profile"
+                >
+                  <Pencil className="h-4 w-4 mr-1" />
+                  Edit
+                </Button>
+              )}
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -107,16 +164,60 @@ export default function ProfilePage() {
                 className="bg-muted/50 font-mono"
                 data-testid="profile-email"
               />
+              <p className="text-xs text-muted-foreground">Email cannot be changed</p>
             </div>
-            {displayName && (
-              <div className="space-y-2">
-                <Label className="text-muted-foreground flex items-center gap-2">
-                  <UserCircle className="h-4 w-4" />
-                  Display name
-                </Label>
-                <Input readOnly value={displayName} className="bg-muted/50" />
-              </div>
-            )}
+
+            <div className="space-y-2">
+              <Label className="text-muted-foreground flex items-center gap-2">
+                <UserCircle className="h-4 w-4" />
+                Display Name
+              </Label>
+              {isEditing ? (
+                <div className="space-y-3">
+                  <Input
+                    value={displayNameInput}
+                    onChange={(e) => setDisplayNameInput(e.target.value)}
+                    placeholder="Enter your display name"
+                    data-testid="input-display-name"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={handleSave}
+                      disabled={isSaving}
+                      data-testid="button-save-profile"
+                    >
+                      {isSaving ? (
+                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      ) : (
+                        <Save className="h-4 w-4 mr-1" />
+                      )}
+                      Save
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setIsEditing(false);
+                        setDisplayNameInput(displayName || "");
+                      }}
+                      disabled={isSaving}
+                      data-testid="button-cancel-edit"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Input
+                  readOnly
+                  value={displayName || "Not set"}
+                  className="bg-muted/50"
+                  data-testid="profile-display-name"
+                />
+              )}
+            </div>
+
             <div className="space-y-2">
               <Label className="text-muted-foreground flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
