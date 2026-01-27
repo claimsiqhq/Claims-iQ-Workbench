@@ -78,6 +78,12 @@ Preferred communication style: Simple, everyday language.
 - Email/password authentication via Supabase Auth
 - Row Level Security (RLS) policies restrict data access by user
 - Login page at `/login`
+- **Required authentication**: Workbench requires sign-in when auth is configured
+
+### User Settings (localStorage)
+- **Notification preferences**: Toggle notifications for correction applied/rejected
+- **Display settings**: Default issue filter, items per page
+- **Export options**: Download audit logs (JSON), export issues report (CSV)
 
 ## External Dependencies
 
