@@ -1,14 +1,19 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import React, { useEffect, useMemo } from "react";
+
+// Force full page reload on HMR to prevent hook state corruption
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    window.location.reload();
+  });
+}
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useNutrientViewer } from "@/hooks/use-nutrient-viewer";
-import { useAuth } from "@/hooks/use-auth";
+import { useWorkbenchState } from "@/hooks/use-workbench-state";
 import { FixEngine } from "@/lib/fix-engine";
 import { PDFAdapterFactory } from "@/lib/adapters";
-import type { PDFProcessorAdapter } from "@/lib/adapters";
-import type { Issue, IssueStatus, Claim, Document, SessionData, ExtractedClaimInfo } from "@shared/schema";
-import type { Annotation, CrossDocumentValidation, Correction } from "@shared/schemas";
+import type { Issue, IssueStatus, Claim, Document } from "@shared/schema";
+import type { Annotation, Correction } from "@shared/schemas";
 import { AnnotationPanel } from "@/components/annotation-panel";
 import { CrossDocumentValidationPanel } from "@/components/cross-document-validation-panel";
 import { Button } from "@/components/ui/button";
@@ -23,7 +28,6 @@ import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
-import { useToast } from "@/hooks/use-toast";
 import { 
   FileText, 
   Download, 
@@ -61,77 +65,77 @@ import {
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { STORAGE_KEY_OPERATOR } from "@/lib/theme";
 
-export default function Workbench() {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [, setLocation] = useLocation();
-  const { user, signOut, isConfigured: isAuthConfigured, loading: authLoading } = useAuth();
-  
-  // Redirect to login if auth is configured but user is not signed in
-  useEffect(() => {
-    if (!authLoading && isAuthConfigured && !user) {
-      setLocation('/login');
-    }
-  }, [authLoading, isAuthConfigured, user, setLocation]);
-
-  const [selectedClaimId, setSelectedClaimId] = useState<string>("");
-  const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
-  const username =
-    user?.email ||
-    (typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY_OPERATOR) ?? "operator-1" : "operator-1");
-  const [issueStatuses, setIssueStatuses] = useState<Map<string, IssueStatus>>(new Map());
-  const [issueAnnotations, setIssueAnnotations] = useState<Map<string, string>>(new Map());
-  const [filter, setFilter] = useState<"all" | "open" | "applied" | "rejected">("all");
-  const [isDocumentLoaded, setIsDocumentLoaded] = useState(false);
-  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [jsonFile, setJsonFile] = useState<File | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const pdfInputRef = useRef<HTMLInputElement>(null);
-  const jsonInputRef = useRef<HTMLInputElement>(null);
-  const [sessionData, setSessionData] = useState<SessionData | null>(null);
-  const [extractedInfo, setExtractedInfo] = useState<ExtractedClaimInfo | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<number>(0);
-  const [uploadStage, setUploadStage] = useState<string>("");
-  const [globalDragging, setGlobalDragging] = useState(false);
-  const dropZoneRef = useRef<HTMLDivElement>(null);
-  const dragCounterRef = useRef(0);
-  const [pdfAdapter, setPdfAdapter] = useState<PDFProcessorAdapter | null>(null);
-  const [fixEngine, setFixEngine] = useState<FixEngine | null>(null);
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
-  const [crossDocValidations, setCrossDocValidations] = useState<CrossDocumentValidation[]>([]);
-  const [showAnnotationPanel, setShowAnnotationPanel] = useState(false);
-  const [showValidationPanel, setShowValidationPanel] = useState(false);
-  const [currentPage, setCurrentPage] = useState<number>(0);
-  
-  // Settings state
-  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
-  const [notifyOnApply, setNotifyOnApply] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('settings_notify_apply') === 'true';
-    }
-    return false;
-  });
-  const [notifyOnReject, setNotifyOnReject] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('settings_notify_reject') === 'true';
-    }
-    return false;
-  });
-  const [defaultFilter, setDefaultFilter] = useState<"all" | "open" | "applied" | "rejected">(() => {
-    if (typeof window !== 'undefined') {
-      return (localStorage.getItem('settings_default_filter') as any) || 'all';
-    }
-    return 'all';
-  });
-  const [itemsPerPage, setItemsPerPage] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return parseInt(localStorage.getItem('settings_items_per_page') || '25', 10);
-    }
-    return 25;
-  });
+function Workbench() {
+  const state = useWorkbenchState();
+  const {
+    toast,
+    queryClient,
+    setLocation,
+    user,
+    signOut,
+    isAuthConfigured,
+    authLoading,
+    selectedClaimId,
+    setSelectedClaimId,
+    selectedDocumentId,
+    setSelectedDocumentId,
+    username,
+    issueStatuses,
+    setIssueStatuses,
+    issueAnnotations,
+    setIssueAnnotations,
+    filter,
+    setFilter,
+    isDocumentLoaded,
+    setIsDocumentLoaded,
+    uploadDialogOpen,
+    setUploadDialogOpen,
+    pdfFile,
+    setPdfFile,
+    jsonFile,
+    setJsonFile,
+    isDragging,
+    setIsDragging,
+    pdfInputRef,
+    jsonInputRef,
+    sessionData,
+    setSessionData,
+    extractedInfo,
+    setExtractedInfo,
+    uploadProgress,
+    setUploadProgress,
+    uploadStage,
+    setUploadStage,
+    globalDragging,
+    setGlobalDragging,
+    dropZoneRef,
+    dragCounterRef,
+    pdfAdapter,
+    setPdfAdapter,
+    fixEngine,
+    setFixEngine,
+    annotations,
+    setAnnotations,
+    crossDocValidations,
+    setCrossDocValidations,
+    showAnnotationPanel,
+    setShowAnnotationPanel,
+    showValidationPanel,
+    setShowValidationPanel,
+    currentPage,
+    setCurrentPage,
+    settingsDialogOpen,
+    setSettingsDialogOpen,
+    notifyOnApply,
+    setNotifyOnApply,
+    notifyOnReject,
+    setNotifyOnReject,
+    defaultFilter,
+    setDefaultFilter,
+    itemsPerPage,
+    setItemsPerPage,
+  } = state;
 
   const { data: health } = useQuery({
     queryKey: ["health"],
@@ -1685,3 +1689,6 @@ export default function Workbench() {
     </div>
   );
 }
+
+Workbench.displayName = 'Workbench';
+export default Workbench;

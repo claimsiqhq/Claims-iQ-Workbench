@@ -25,6 +25,17 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   static getDerivedStateFromError(error: Error): State {
+    // Check for HMR-related hook errors and trigger refresh
+    const errorMsg = error?.message || error?.toString() || '';
+    if (errorMsg.includes("Invalid hook call") || 
+        errorMsg.includes("Rendered fewer hooks") ||
+        errorMsg.includes("Rendered more hooks")) {
+      // Schedule immediate page refresh for HMR issues
+      if (typeof window !== 'undefined') {
+        console.log("Detected HMR hook error in getDerivedStateFromError, scheduling refresh...");
+        setTimeout(() => window.location.reload(), 0);
+      }
+    }
     return {
       hasError: true,
       error,
@@ -34,6 +45,16 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     console.error("ErrorBoundary caught an error:", error, errorInfo);
+    
+    // Auto-refresh on HMR-related hook errors to provide seamless recovery
+    if (error.message?.includes("Invalid hook call") || 
+        error.message?.includes("Rendered fewer hooks") ||
+        error.message?.includes("Rendered more hooks")) {
+      console.log("Detected HMR hook error, auto-refreshing page...");
+      window.location.reload();
+      return;
+    }
+    
     this.setState({
       error,
       errorInfo,

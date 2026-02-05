@@ -88,6 +88,7 @@ export function CrossDocumentValidationPanel({
                         onToggleExpand={() => toggleExpand(validation.id)}
                         onResolve={onResolve}
                         onIgnore={onIgnore}
+                        onEscalate={onEscalate}
                       />
                     ))}
                   </div>
@@ -122,12 +123,14 @@ function ValidationCard({
   onToggleExpand,
   onResolve,
   onIgnore,
+  onEscalate,
 }: {
   validation: CrossDocumentValidation;
   expanded: boolean;
   onToggleExpand: () => void;
   onResolve?: (validationId: string, resolvedValue: string) => void;
   onIgnore?: (validationId: string) => void;
+  onEscalate?: (validationId: string, reason: string) => void;
 }) {
   const SeverityIcon = severityIcons[validation.severity];
   const colorClass = severityColors[validation.severity];
