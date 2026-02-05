@@ -151,6 +151,8 @@ export const api = {
       formData.append("issues", issuesFile);
     }
     
+    const token = await getAccessToken();
+    
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       
@@ -198,7 +200,6 @@ export const api = {
       xhr.open("POST", `${API_BASE}/api/documents/upload`);
       
       // Add auth header
-      const token = await getAccessToken();
       if (token) {
         xhr.setRequestHeader("Authorization", `Bearer ${token}`);
       }
