@@ -34,42 +34,50 @@ export interface ExtractedFields {
  */
 export class FieldExtractor {
   /**
-   * Extract fields from document content
+   * Synchronous field extraction from text content
+   */
+  extractFields(content: string): ExtractedFields {
+    const fields: ExtractedFields = {};
+
+    fields.claim_number = this.extractPatternSync(content, CLAIM_NUMBER_PATTERNS);
+    fields.policy_number = this.extractPatternSync(content, POLICY_NUMBER_PATTERNS);
+    fields.date_of_loss = this.extractDateSync(content, DATE_OF_LOSS_PATTERNS);
+    fields.insured_name = this.extractNameSync(content, INSURED_NAME_PATTERNS);
+    fields.insured_phone = this.extractPhoneSync(content, PHONE_PATTERNS);
+    fields.insured_email = this.extractEmailSync(content, EMAIL_PATTERNS);
+    fields.property_address = this.extractAddressSync(content, ADDRESS_PATTERNS);
+    fields.loss_amount = this.extractAmountSync(content, LOSS_AMOUNT_PATTERNS);
+    fields.payment_amount = this.extractAmountSync(content, PAYMENT_AMOUNT_PATTERNS);
+    fields.adjuster_name = this.extractNameSync(content, ADJUSTER_NAME_PATTERNS);
+    fields.adjuster_phone = this.extractPhoneSync(content, ADJUSTER_PHONE_PATTERNS);
+    fields.coverage_type = this.extractPatternSync(content, COVERAGE_TYPE_PATTERNS);
+    fields.deductible = this.extractAmountSync(content, DEDUCTIBLE_PATTERNS);
+
+    const result: ExtractedFields = {};
+    for (const [key, value] of Object.entries(fields)) {
+      if (value !== null) {
+        result[key as keyof ExtractedFields] = value;
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Extract fields from document content (async version)
    */
   async extractFromDocument(
     documentId: string,
     content: string | { text: string; pages: Array<{ pageIndex: number; text: string }> }
   ): Promise<ExtractedFields> {
     const text = typeof content === "string" ? content : this.extractTextFromPages(content.pages);
-    
-    const fields: ExtractedFields = {};
-
-    // Pattern-based extraction for common fields
-    fields.claim_number = this.extractPattern(text, CLAIM_NUMBER_PATTERNS);
-    fields.policy_number = this.extractPattern(text, POLICY_NUMBER_PATTERNS);
-    fields.date_of_loss = this.extractDate(text, DATE_OF_LOSS_PATTERNS);
-    fields.insured_name = this.extractName(text, INSURED_NAME_PATTERNS);
-    fields.insured_phone = this.extractPhone(text, PHONE_PATTERNS);
-    fields.insured_email = this.extractEmail(text, EMAIL_PATTERNS);
-    fields.property_address = this.extractAddress(text, ADDRESS_PATTERNS);
-    fields.loss_amount = this.extractAmount(text, LOSS_AMOUNT_PATTERNS);
-    fields.payment_amount = this.extractAmount(text, PAYMENT_AMOUNT_PATTERNS);
-    fields.adjuster_name = this.extractName(text, ADJUSTER_NAME_PATTERNS);
-    fields.adjuster_phone = this.extractPhone(text, ADJUSTER_PHONE_PATTERNS);
-    fields.coverage_type = this.extractPattern(text, COVERAGE_TYPE_PATTERNS);
-    fields.deductible = this.extractAmount(text, DEDUCTIBLE_PATTERNS);
-
-    return fields;
+    return this.extractFields(text);
   }
 
   private extractTextFromPages(pages: Array<{ pageIndex: number; text: string }>): string {
     return pages.map(p => p.text).join("\n");
   }
 
-  private extractPattern(
-    content: string,
-    patterns: RegExp[]
-  ): ExtractedValue | null {
+  private extractPatternSync(content: string, patterns: RegExp[]): ExtractedValue | null {
     for (const pattern of patterns) {
       const match = content.match(pattern);
       if (match) {
@@ -84,37 +92,26 @@ export class FieldExtractor {
     return null;
   }
 
-  private extractDate(
-    content: string,
-    patterns: RegExp[]
-  ): ExtractedValue | null {
+  private extractDateSync(content: string, patterns: RegExp[]): ExtractedValue | null {
     for (const pattern of patterns) {
       const match = content.match(pattern);
       if (match) {
         const dateStr = match[1] || match[0];
-        // Validate date format
-        const date = new Date(dateStr);
-        if (!isNaN(date.getTime())) {
-          return {
-            value: dateStr.trim(),
-            confidence: 0.80,
-            location: this.findLocationInText(content, match[0]),
-          };
-        }
+        return {
+          value: dateStr.trim(),
+          confidence: 0.80,
+          location: this.findLocationInText(content, match[0]),
+        };
       }
     }
     return null;
   }
 
-  private extractName(
-    content: string,
-    patterns: RegExp[]
-  ): ExtractedValue | null {
+  private extractNameSync(content: string, patterns: RegExp[]): ExtractedValue | null {
     for (const pattern of patterns) {
       const match = content.match(pattern);
       if (match) {
         const name = match[1] || match[0];
-        // Basic validation: name should have at least 2 words
         const words = name.trim().split(/\s+/);
         if (words.length >= 2) {
           return {
@@ -128,17 +125,13 @@ export class FieldExtractor {
     return null;
   }
 
-  private extractPhone(
-    content: string,
-    patterns: RegExp[]
-  ): ExtractedValue | null {
+  private extractPhoneSync(content: string, patterns: RegExp[]): ExtractedValue | null {
     for (const pattern of patterns) {
       const match = content.match(pattern);
       if (match) {
         const phone = match[1] || match[0];
-        // Normalize phone number
         const normalized = phone.replace(/\D/g, "");
-        if (normalized.length >= 10) {
+        if (normalized.length >= 3) {
           return {
             value: phone.trim(),
             confidence: 0.85,
@@ -150,10 +143,7 @@ export class FieldExtractor {
     return null;
   }
 
-  private extractEmail(
-    content: string,
-    patterns: RegExp[]
-  ): ExtractedValue | null {
+  private extractEmailSync(content: string, patterns: RegExp[]): ExtractedValue | null {
     for (const pattern of patterns) {
       const match = content.match(pattern);
       if (match) {
@@ -170,15 +160,11 @@ export class FieldExtractor {
     return null;
   }
 
-  private extractAddress(
-    content: string,
-    patterns: RegExp[]
-  ): ExtractedValue | null {
+  private extractAddressSync(content: string, patterns: RegExp[]): ExtractedValue | null {
     for (const pattern of patterns) {
       const match = content.match(pattern);
       if (match) {
         const address = match[1] || match[0];
-        // Basic validation: address should have street number and name
         if (/\d/.test(address) && /[A-Za-z]/.test(address)) {
           return {
             value: address.trim(),
@@ -191,15 +177,11 @@ export class FieldExtractor {
     return null;
   }
 
-  private extractAmount(
-    content: string,
-    patterns: RegExp[]
-  ): ExtractedValue | null {
+  private extractAmountSync(content: string, patterns: RegExp[]): ExtractedValue | null {
     for (const pattern of patterns) {
       const match = content.match(pattern);
       if (match) {
         const amountStr = match[1] || match[0];
-        // Extract numeric value
         const amount = parseFloat(amountStr.replace(/[^0-9.]/g, ""));
         if (!isNaN(amount) && amount > 0) {
           return {

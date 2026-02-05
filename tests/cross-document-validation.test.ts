@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { FieldExtractor } from '@/server/services/field-extractor';
-import { CrossDocumentValidator } from '@/server/services/cross-document-validator';
-import type { ExtractedDocument } from '@/server/services/cross-document-validator';
+import { FieldExtractor } from '../server/services/field-extractor';
+import { CrossDocumentValidator, type ExtractedDocument } from '../server/services/cross-document-validator';
 
 describe('CrossDocumentValidator', () => {
   it('detects claim number inconsistency', async () => {

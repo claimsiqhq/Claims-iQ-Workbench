@@ -9,6 +9,9 @@ import { CrossDocumentValidator } from "./services/cross-document-validator";
 import { authenticateRequest, optionalAuth } from "./middleware/auth";
 import { uploadLimiter, auditLimiter, apiLimiter, validationLimiter } from "./middleware/rate-limit";
 import { requestIdMiddleware, loggingMiddleware } from "./middleware/logging";
+import { parsePaginationParams, createPaginatedResponse, DEFAULT_LIMIT, DEFAULT_PAGE } from "@shared/types/pagination";
+import { performanceMiddleware, performanceMonitor } from "./monitoring";
+import { cache, cacheKey, withCache } from "./cache";
 import jwt from "jsonwebtoken";
 import multer from "multer";
 import { v4 as uuidv4 } from "uuid";
@@ -359,9 +362,15 @@ export async function registerRoutes(
   // Apply request ID and logging middleware
   app.use(requestIdMiddleware);
   app.use(loggingMiddleware);
+  app.use(performanceMiddleware);
   
   // Apply rate limiting to all API routes
   app.use("/api", apiLimiter);
+
+  // Metrics endpoint - no auth required
+  app.get("/api/metrics", (req, res) => {
+    sendSuccess(res, performanceMonitor.getMetrics());
+  });
 
   // Health check - no auth required
   app.get("/api/health", async (req, res) => {
@@ -383,15 +392,54 @@ export async function registerRoutes(
     });
   });
 
+  /**
+   * @openapi
+   * /claims:
+   *   get:
+   *     summary: Get list of claims
+   *     tags: [Claims]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *         description: Page number (default 1)
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *         description: Items per page (default 50, max 100)
+   *     responses:
+   *       200:
+   *         description: List of claims with pagination
+   */
   app.get("/api/claims", authenticateRequest, async (req, res) => {
     try {
+      const pagination = parsePaginationParams(req.query);
+      
       if (isSupabaseConfigured()) {
-        const claims = await storage.getClaims(req.userId);
-        return sendSuccess(res, claims);
+        const cacheKeyStr = cacheKey("claims", req.userId, pagination.page, pagination.limit);
+        const claims = await withCache(cacheKeyStr, async () => {
+          return await storage.getClaims(req.userId);
+        }, 30000);
+        
+        const paginatedData = claims.slice(
+          ((pagination.page || 1) - 1) * (pagination.limit || 50),
+          (pagination.page || 1) * (pagination.limit || 50)
+        );
+        
+        return sendSuccess(res, createPaginatedResponse(paginatedData, claims.length, pagination));
       }
       
       const index = readIndex();
-      sendSuccess(res, index.claims);
+      const paginatedData = index.claims.slice(
+        ((pagination.page || 1) - 1) * (pagination.limit || 50),
+        (pagination.page || 1) * (pagination.limit || 50)
+      );
+      
+      sendSuccess(res, createPaginatedResponse(paginatedData, index.claims.length, pagination));
     } catch (error) {
       console.error("Error fetching claims:", error);
       sendError(res, 500, "FETCH_ERROR", "Failed to fetch claims");

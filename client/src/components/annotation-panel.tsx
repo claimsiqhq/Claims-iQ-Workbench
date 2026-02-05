@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { 
   Highlighter, 
   MessageSquare, 
@@ -11,11 +12,21 @@ import {
   Minus, 
   Underline,
   Plus,
-  X
+  X,
+  Target,
+  ChevronDown
 } from "lucide-react";
 import type { Annotation, AnnotationType } from "@shared/schemas";
 import type { PDFProcessorAdapter } from "@/lib/adapters";
 import { cn } from "@/lib/utils";
+
+interface BBox {
+  pageIndex: number;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
 
 interface AnnotationPanelProps {
   adapter?: PDFProcessorAdapter | null;
@@ -25,6 +36,8 @@ interface AnnotationPanelProps {
   onDeleteAnnotation?: (id: string) => Promise<void>;
   selectedPageIndex?: number;
   currentPage?: number;
+  onStartLocationSelection?: (type: AnnotationType) => void;
+  isSelectingLocation?: boolean;
 }
 
 const annotationTypeIcons = {
@@ -43,6 +56,14 @@ const annotationTypeColors = {
   underline: "bg-green-100 text-green-800 border-green-300",
 };
 
+const annotationTypeLabels: Record<AnnotationType, string> = {
+  highlight: "Highlight",
+  comment: "Comment",
+  flag: "Flag",
+  strikethrough: "Strikethrough",
+  underline: "Underline",
+};
+
 export function AnnotationPanel({
   adapter,
   documentId,
@@ -51,6 +72,8 @@ export function AnnotationPanel({
   onDeleteAnnotation,
   selectedPageIndex,
   currentPage,
+  onStartLocationSelection,
+  isSelectingLocation,
 }: AnnotationPanelProps) {
   const [filterType, setFilterType] = useState<AnnotationType | "all">("all");
 
@@ -69,7 +92,7 @@ export function AnnotationPanel({
     return acc;
   }, {} as Record<AnnotationType, Annotation[]>);
 
-  const handleCreateAnnotation = async (type: AnnotationType) => {
+  const handleQuickCreate = async (type: AnnotationType) => {
     if (!onCreateAnnotation) return;
     
     const pageIndex = currentPage !== undefined ? currentPage : selectedPageIndex || 0;
@@ -79,17 +102,23 @@ export function AnnotationPanel({
       location: {
         bbox: {
           pageIndex,
-          left: 0,
-          top: 0,
-          width: 100,
+          left: 10,
+          top: 10,
+          width: 80,
           height: 20,
         },
       },
-      created_by: "current-user", // Will be replaced by actual user
+      created_by: "current-user",
       created_at: new Date().toISOString(),
     };
     
     await onCreateAnnotation(annotation);
+  };
+
+  const handleSelectLocation = (type: AnnotationType) => {
+    if (onStartLocationSelection) {
+      onStartLocationSelection(type);
+    }
   };
 
   return (
@@ -103,17 +132,54 @@ export function AnnotationPanel({
             </CardDescription>
           </div>
           {onCreateAnnotation && adapter && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1.5"
-              onClick={() => handleCreateAnnotation("highlight")}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={cn("h-8 gap-1.5", isSelectingLocation && "border-primary bg-primary/10")}
+                  disabled={isSelectingLocation}
+                  data-testid="add-annotation-dropdown"
+                >
+                  {isSelectingLocation ? (
+                    <>
+                      <Target className="h-3.5 w-3.5 animate-pulse" />
+                      Selecting...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-3.5 w-3.5" />
+                      Add
+                      <ChevronDown className="h-3 w-3 ml-0.5" />
+                    </>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {(Object.keys(annotationTypeIcons) as AnnotationType[]).map((type) => {
+                  const Icon = annotationTypeIcons[type];
+                  return (
+                    <DropdownMenuItem
+                      key={type}
+                      onClick={() => handleSelectLocation(type)}
+                      className="gap-2 cursor-pointer"
+                      data-testid={`add-annotation-${type}`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      <span className="flex-1">{annotationTypeLabels[type]}</span>
+                      <Target className="h-3 w-3 text-muted-foreground" />
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
+        {onStartLocationSelection && (
+          <p className="text-xs text-muted-foreground mt-2">
+            Click "Add" and select a location on the document
+          </p>
+        )}
       </CardHeader>
       <CardContent className="flex-1 overflow-hidden p-0">
         <Tabs defaultValue="all" className="h-full flex flex-col">
@@ -188,7 +254,10 @@ function AnnotationCard({
   const colorClass = annotationTypeColors[annotation.type];
 
   return (
-    <div className="p-3 border border-[#E3DFE8] rounded-lg bg-white hover:bg-[#F0EDF4]/50 transition-colors">
+    <div 
+      className="p-3 border border-[#E3DFE8] rounded-lg bg-white hover:bg-[#F0EDF4]/50 transition-colors"
+      data-testid={`annotation-card-${annotation.id}`}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-2 flex-1 min-w-0">
           <div className={cn("p-1.5 rounded border shrink-0", colorClass)}>
@@ -214,6 +283,11 @@ function AnnotationCard({
                 style={{ backgroundColor: annotation.color }}
               />
             )}
+            {annotation.location.bbox && (
+              <div className="text-[10px] text-muted-foreground mt-1">
+                Position: ({annotation.location.bbox.left.toFixed(1)}%, {annotation.location.bbox.top.toFixed(1)}%)
+              </div>
+            )}
             {annotation.related_correction_id && (
               <Badge variant="outline" className="text-xs mt-1">
                 Linked to correction
@@ -227,6 +301,7 @@ function AnnotationCard({
             size="icon"
             className="h-7 w-7 shrink-0"
             onClick={() => onDelete(annotation.id)}
+            data-testid={`delete-annotation-${annotation.id}`}
           >
             <X className="h-3.5 w-3.5" />
           </Button>
@@ -234,4 +309,18 @@ function AnnotationCard({
       </div>
     </div>
   );
+}
+
+export function createAnnotationWithLocation(
+  type: AnnotationType,
+  bbox: BBox,
+  userId: string = "current-user"
+): Annotation {
+  return {
+    id: crypto.randomUUID(),
+    type,
+    location: { bbox },
+    created_by: userId,
+    created_at: new Date().toISOString(),
+  };
 }

@@ -10,6 +10,7 @@ describe('CorrectionSchema', () => {
   it('validates a complete correction', () => {
     const correction = {
       id: '550e8400-e29b-41d4-a716-446655440000',
+      claim_id: 'CLM-001',
       type: 'date_error',
       severity: 'warning',
       location: {
@@ -31,6 +32,7 @@ describe('CorrectionSchema', () => {
   it('requires at least bbox or search_text in location', () => {
     const invalidCorrection = {
       id: '550e8400-e29b-41d4-a716-446655440000',
+      claim_id: 'CLM-001',
       type: 'typo',
       severity: 'info',
       location: {}, // Neither bbox nor search_text
@@ -48,6 +50,7 @@ describe('CorrectionSchema', () => {
   it('accepts correction with only bbox', () => {
     const correction = {
       id: '550e8400-e29b-41d4-a716-446655440000',
+      claim_id: 'CLM-001',
       type: 'typo',
       severity: 'info',
       location: {
@@ -67,6 +70,7 @@ describe('CorrectionSchema', () => {
   it('accepts correction with only search_text', () => {
     const correction = {
       id: '550e8400-e29b-41d4-a716-446655440000',
+      claim_id: 'CLM-001',
       type: 'typo',
       severity: 'info',
       location: {
