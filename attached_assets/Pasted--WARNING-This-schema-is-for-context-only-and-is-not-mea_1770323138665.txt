@@ -1,0 +1,70 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.audit_logs (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  claim_id text NOT NULL,
+  document_id text NOT NULL,
+  issue_id text NOT NULL,
+  action text NOT NULL CHECK (action = ANY (ARRAY['AUTO_FIX'::text, 'MANUAL_FIX'::text, 'REJECT'::text])),
+  method text,
+  before_value text,
+  after_value text,
+  user_id uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT audit_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT audit_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.claims (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  claim_id text NOT NULL UNIQUE,
+  claim_number text,
+  policy_number text,
+  insured_name text,
+  date_of_loss date,
+  claim_amount text,
+  status text DEFAULT 'open'::text,
+  adjuster_name text,
+  user_id uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT claims_pkey PRIMARY KEY (id),
+  CONSTRAINT claims_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.documents (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  document_id text NOT NULL UNIQUE,
+  claim_id text NOT NULL,
+  title text NOT NULL,
+  file_path text NOT NULL,
+  file_size integer,
+  mime_type text DEFAULT 'application/pdf'::text,
+  user_id uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT documents_pkey PRIMARY KEY (id),
+  CONSTRAINT documents_claim_id_fkey FOREIGN KEY (claim_id) REFERENCES public.claims(claim_id),
+  CONSTRAINT documents_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.issues (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  issue_id text NOT NULL UNIQUE,
+  document_id text NOT NULL,
+  type text NOT NULL,
+  severity text NOT NULL CHECK (severity = ANY (ARRAY['critical'::text, 'warning'::text, 'info'::text])),
+  confidence numeric NOT NULL,
+  page_index integer NOT NULL DEFAULT 0,
+  rect jsonb NOT NULL,
+  found_value text,
+  expected_value text,
+  form_field_name text,
+  label text,
+  suggested_fix jsonb,
+  status text NOT NULL DEFAULT 'OPEN'::text CHECK (status = ANY (ARRAY['OPEN'::text, 'APPLIED'::text, 'MANUAL'::text, 'REJECTED'::text])),
+  user_id uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT issues_pkey PRIMARY KEY (id),
+  CONSTRAINT issues_document_id_fkey FOREIGN KEY (document_id) REFERENCES public.documents(document_id),
+  CONSTRAINT issues_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
