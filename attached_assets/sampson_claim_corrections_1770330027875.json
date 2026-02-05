@@ -1,0 +1,296 @@
+{
+  "correction_job_id": "a3f7c2e1-9b4d-4a8e-b6f0-2d1e3c5a7b9d",
+  "generated_at": "2025-02-05T19:45:00Z",
+  "claim_context": {
+    "claim_number": "01009792907",
+    "policy_number": "35CI505612",
+    "insured_name": "BOBBY SAMPSON",
+    "date_of_loss": "2025-03-20",
+    "property_address": "799 W LANDAU AVE, Saint Clair, MO 63077-1638"
+  },
+  "documents": [
+    {
+      "document_id": "doc-001-activity",
+      "document_type": "activity_report",
+      "source_filename": "_9_Activity_Report.pdf",
+      "page_count": 2,
+      "corrections": [
+        {
+          "correction_id": "corr-001",
+          "type": "date_error",
+          "severity": "critical",
+          "location": {
+            "page": 1,
+            "text_context": "Date/Time Of Call: 3/256/25 @ 1:40 pm.",
+            "search_text": "3/256/25"
+          },
+          "original_value": "3/256/25",
+          "corrected_value": "3/26/25",
+          "reason": "Invalid date '3/256/25' — the day value '256' is not a valid calendar day. Context from adjacent activity entries confirms this should be March 26, 2025 (matching the Due date of 3/26/2025 on the same entry).",
+          "confidence": 0.99,
+          "requires_human_review": false,
+          "evidence": {
+            "source_document_id": "doc-001-activity",
+            "source_field": "Activity Due Date (same entry)",
+            "validation_method": "contextual_inference"
+          }
+        },
+        {
+          "correction_id": "corr-002",
+          "type": "phone_format",
+          "severity": "warning",
+          "location": {
+            "page": 2,
+            "text_context": "Erik Roberts\n469-394-025",
+            "search_text": "469-394-025"
+          },
+          "original_value": "469-394-025",
+          "corrected_value": "469-394-0205",
+          "reason": "Phone number truncated — missing final digit. All other occurrences in this document show '469-394-0205' (appears 4 times on page 1). Standard US phone format requires 10 digits.",
+          "confidence": 0.98,
+          "requires_human_review": false,
+          "evidence": {
+            "source_document_id": "doc-001-activity",
+            "source_field": "Adjuster contact number (repeated entries)",
+            "validation_method": "cross_document"
+          }
+        }
+      ],
+      "annotations": [
+        {
+          "annotation_id": "ann-001",
+          "type": "flag",
+          "severity": "info",
+          "location": {
+            "page": 1,
+            "search_text": "Loss Amount: $0.00"
+          },
+          "message": "Loss Amount shows $0.00 but the associated Invoice (doc-002-invoice) shows RCV Loss of $12,047.30 and Net Payment of $11,154.52. This may indicate the Activity Report was generated before the estimate was completed, but should be verified.",
+          "color": "#FFA500",
+          "category": "cross_doc_mismatch"
+        }
+      ]
+    },
+    {
+      "document_id": "doc-002-invoice",
+      "document_type": "invoice",
+      "source_filename": "_9_Invoice.pdf",
+      "page_count": 1,
+      "corrections": [],
+      "annotations": [
+        {
+          "annotation_id": "ann-002",
+          "type": "comment",
+          "severity": "info",
+          "location": {
+            "page": 1,
+            "search_text": "Attention: Mo"
+          },
+          "message": "Truncated field — 'Attention: Mo' appears incomplete. This may be a data extraction artifact or a truncated name. Verify the intended recipient.",
+          "color": "#FFFF00",
+          "category": "data_quality"
+        },
+        {
+          "annotation_id": "ann-003",
+          "type": "highlight",
+          "severity": "info",
+          "location": {
+            "page": 1,
+            "search_text": "Ins Company:"
+          },
+          "message": "Insurance company name is blank. Should reference 'American Family Insurance' per FNOL document.",
+          "color": "#FFFF00",
+          "category": "data_quality"
+        }
+      ]
+    },
+    {
+      "document_id": "doc-003-fnol",
+      "document_type": "fnol",
+      "source_filename": "_9_FNOL.pdf",
+      "page_count": 2,
+      "corrections": [],
+      "annotations": [
+        {
+          "annotation_id": "ann-004",
+          "type": "flag",
+          "severity": "warning",
+          "location": {
+            "page": 1,
+            "search_text": "Year Roof Install: 01-01-2003"
+          },
+          "message": "Roof installation date (2003) makes the roof 22 years old at time of loss. This is relevant for depreciation calculations and may trigger ACV-only coverage under some policy endorsements. Ensure estimate reflects appropriate depreciation.",
+          "color": "#FFA500",
+          "category": "review_needed"
+        },
+        {
+          "annotation_id": "ann-005",
+          "type": "flag",
+          "severity": "info",
+          "location": {
+            "page": 1,
+            "search_text": "Unable to retrieve Weather"
+          },
+          "message": "Weather verification failed at FNOL intake. Weather data should be retrieved and attached to validate the reported wind damage cause of loss for date 03/20/2025 at the insured location.",
+          "color": "#87CEEB",
+          "category": "data_quality"
+        },
+        {
+          "annotation_id": "ann-006",
+          "type": "highlight",
+          "severity": "info",
+          "location": {
+            "page": 1,
+            "search_text": "Drone eligible at FNOL : No"
+          },
+          "message": "Property was flagged as not drone-eligible at FNOL. Given this is a single-story dwelling with roof-only damage, drone eligibility should be re-evaluated — this is a strong candidate for remote inspection.",
+          "color": "#90EE90",
+          "category": "review_needed"
+        }
+      ]
+    }
+  ],
+  "cross_document_validations": [
+    {
+      "validation_id": "xval-001",
+      "field_name": "loss_amount",
+      "severity": "warning",
+      "occurrences": [
+        {
+          "document_id": "doc-001-activity",
+          "document_type": "activity_report",
+          "value": "$0.00",
+          "location": {
+            "page": 1,
+            "search_text": "Loss Amount: $0.00"
+          }
+        },
+        {
+          "document_id": "doc-002-invoice",
+          "document_type": "invoice",
+          "value": "$12,047.30",
+          "location": {
+            "page": 1,
+            "search_text": "RCV Loss $12,047.30"
+          }
+        }
+      ],
+      "expected_value": null,
+      "message": "Loss Amount is $0.00 on the Activity Report but the Invoice shows RCV Loss of $12,047.30. The Activity Report may have been generated before the estimate was finalized. If the Activity Report is the final version, this discrepancy needs resolution.",
+      "recommended_action": "flag_for_review"
+    },
+    {
+      "validation_id": "xval-002",
+      "field_name": "adjuster_phone",
+      "severity": "warning",
+      "occurrences": [
+        {
+          "document_id": "doc-001-activity",
+          "document_type": "activity_report",
+          "value": "469-394-0205",
+          "location": {
+            "page": 1,
+            "search_text": "469-394-0205"
+          }
+        },
+        {
+          "document_id": "doc-001-activity",
+          "document_type": "activity_report",
+          "value": "469-394-025",
+          "location": {
+            "page": 2,
+            "search_text": "469-394-025"
+          }
+        }
+      ],
+      "expected_value": "469-394-0205",
+      "message": "Adjuster Erik Roberts' phone number is inconsistent within the Activity Report: '469-394-0205' (page 1, 4 occurrences) vs '469-394-025' (page 2, truncated). The 10-digit version is correct.",
+      "recommended_action": "auto_correct"
+    },
+    {
+      "validation_id": "xval-003",
+      "field_name": "claim_number",
+      "severity": "info",
+      "occurrences": [
+        {
+          "document_id": "doc-001-activity",
+          "document_type": "activity_report",
+          "value": "(not present)",
+          "location": {
+            "page": 1,
+            "search_text": "Adj. File No.:"
+          }
+        },
+        {
+          "document_id": "doc-002-invoice",
+          "document_type": "invoice",
+          "value": "01009792907",
+          "location": {
+            "page": 1,
+            "search_text": "Ins. Claim #:"
+          }
+        },
+        {
+          "document_id": "doc-003-fnol",
+          "document_type": "fnol",
+          "value": "01009792907",
+          "location": {
+            "page": 1,
+            "search_text": "Claim Number: 01009792907"
+          }
+        }
+      ],
+      "expected_value": "01009792907",
+      "message": "The Activity Report does not display a claim number or adjuster file number, while the Invoice and FNOL both reference claim 01009792907. The Activity Report's 'Adj. File No.' field appears blank.",
+      "recommended_action": "flag_for_review"
+    },
+    {
+      "validation_id": "xval-004",
+      "field_name": "policy_number",
+      "severity": "info",
+      "occurrences": [
+        {
+          "document_id": "doc-001-activity",
+          "document_type": "activity_report",
+          "value": "35CI505612",
+          "location": {
+            "page": 1,
+            "search_text": "Policy No. : 35CI505612"
+          }
+        },
+        {
+          "document_id": "doc-002-invoice",
+          "document_type": "invoice",
+          "value": "35CI505612",
+          "location": {
+            "page": 1,
+            "search_text": "Policy:"
+          }
+        },
+        {
+          "document_id": "doc-003-fnol",
+          "document_type": "fnol",
+          "value": "35CI505612",
+          "location": {
+            "page": 1,
+            "search_text": "Policy Number: 35CI505612"
+          }
+        }
+      ],
+      "expected_value": "35CI505612",
+      "message": "Policy number is consistent across all three documents. No action required.",
+      "recommended_action": "informational"
+    }
+  ],
+  "summary": {
+    "total_corrections": 2,
+    "total_annotations": 6,
+    "total_cross_doc_flags": 4,
+    "severity_counts": {
+      "critical": 1,
+      "warning": 3,
+      "info": 8
+    },
+    "confidence_average": 0.985
+  }
+}
