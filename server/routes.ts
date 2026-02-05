@@ -734,9 +734,20 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid document ID" });
       }
 
-      const correction = CorrectionSchema.parse(req.body);
-      await storage.saveCorrection(correction);
-      res.json({ success: true, correction });
+      const userId = req.headers['x-user-id'] as string;
+      const correctionData = CorrectionSchema.parse(req.body);
+      
+      // Ensure document_id is set in evidence
+      const correction = {
+        ...correctionData,
+        evidence: {
+          ...correctionData.evidence,
+          source_document: sanitizedDocId,
+        },
+      };
+      
+      const created = await storage.createCorrection(correction, userId);
+      res.status(201).json(created);
     } catch (error) {
       res.status(400).json({ error: "Invalid correction data" });
     }
@@ -763,12 +774,15 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid correction ID" });
       }
 
-      const { status } = req.body;
+      const { status, method } = req.body;
       if (!status || !['pending', 'applied', 'rejected', 'manual'].includes(status)) {
         return res.status(400).json({ error: "Invalid status" });
       }
 
-      await storage.updateCorrectionStatus(sanitizedId, status);
+      // Get userId from auth if available
+      const userId = req.headers['x-user-id'] as string;
+      
+      await storage.updateCorrectionStatus(sanitizedId, status, userId, method, userId);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to update correction status" });
@@ -782,9 +796,26 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid document ID" });
       }
 
-      const annotation = AnnotationSchema.parse(req.body);
-      await storage.saveAnnotation(annotation);
-      res.json({ success: true, annotation });
+      const userId = req.headers['x-user-id'] as string;
+      const annotationData = AnnotationSchema.parse(req.body);
+      
+      // Set document_id in annotation location if needed
+      const annotation = {
+        ...annotationData,
+        location: annotationData.location,
+      };
+      
+      const created = await storage.createAnnotation(annotation, userId);
+      
+      // Update document_id after creation
+      if (created && supabaseAdmin) {
+        await supabaseAdmin
+          .from('annotations')
+          .update({ document_id: sanitizedDocId })
+          .eq('id', created.id);
+      }
+      
+      res.status(201).json(created);
     } catch (error) {
       res.status(400).json({ error: "Invalid annotation data" });
     }
@@ -815,6 +846,20 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete annotation" });
+    }
+  });
+
+  app.get("/api/claims/:claimId/validations", async (req, res) => {
+    try {
+      const sanitizedClaimId = sanitizeId(req.params.claimId);
+      if (!sanitizedClaimId) {
+        return res.status(400).json({ error: "Invalid claim ID" });
+      }
+
+      const validations = await storage.getCrossDocumentValidations(sanitizedClaimId);
+      res.json(validations);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch cross-document validations" });
     }
   });
 
@@ -855,7 +900,7 @@ export async function registerRoutes(
       }
 
       const { status, resolved_value } = req.body;
-      if (!status || !['pending', 'resolved', 'ignored'].includes(status)) {
+      if (!status || !['pending', 'resolved', 'ignored', 'escalated'].includes(status)) {
         return res.status(400).json({ error: "Invalid status" });
       }
 
@@ -863,6 +908,47 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to update validation status" });
+    }
+  });
+
+  app.post("/api/validations/:id/resolve", async (req, res) => {
+    try {
+      const sanitizedId = sanitizeId(req.params.id);
+      if (!sanitizedId) {
+        return res.status(400).json({ error: "Invalid validation ID" });
+      }
+
+      const { resolved_value } = req.body;
+      if (!resolved_value) {
+        return res.status(400).json({ error: "resolved_value is required" });
+      }
+
+      // Get userId from auth if available
+      const userId = req.headers['x-user-id'] as string || 'system';
+      
+      await storage.resolveCrossDocValidation(sanitizedId, resolved_value, userId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to resolve validation" });
+    }
+  });
+
+  app.post("/api/validations/:id/escalate", async (req, res) => {
+    try {
+      const sanitizedId = sanitizeId(req.params.id);
+      if (!sanitizedId) {
+        return res.status(400).json({ error: "Invalid validation ID" });
+      }
+
+      const { reason } = req.body;
+      if (!reason) {
+        return res.status(400).json({ error: "reason is required" });
+      }
+
+      await storage.escalateCrossDocValidation(sanitizedId, reason);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to escalate validation" });
     }
   });
 
@@ -876,7 +962,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/claims/:claimId/validate-cross-document", async (req, res) => {
+  app.post("/api/claims/:claimId/validate", async (req, res) => {
     try {
       const sanitizedClaimId = sanitizeId(req.params.claimId);
       if (!sanitizedClaimId) {
@@ -887,7 +973,7 @@ export async function registerRoutes(
       const documents = await storage.getDocumentsByClaim(sanitizedClaimId);
       
       if (documents.length < 2) {
-        return res.json({ validations: [], message: "Need at least 2 documents to validate" });
+        return res.json({ validations: [], count: 0, message: "Need at least 2 documents to validate" });
       }
 
       const extractor = new FieldExtractor();
@@ -897,8 +983,8 @@ export async function registerRoutes(
       const extractedDocs = await Promise.all(
         documents.map(async (doc) => {
           // In a real implementation, you'd extract text from the PDF
-          // For now, we'll use a placeholder
-          const content = ""; // TODO: Extract PDF text content
+          // For now, we'll use a placeholder - in production, read PDF content
+          const content = ""; // TODO: Extract PDF text content using pdf-parser or similar
           const fields = await extractor.extractFromDocument(doc.documentId, content);
           return {
             document_id: doc.documentId,
@@ -912,8 +998,11 @@ export async function registerRoutes(
       const validations = await validator.validateClaim(sanitizedClaimId, extractedDocs);
 
       // Save validations
+      const userId = req.headers['x-user-id'] as string;
       for (const validation of validations) {
-        await storage.saveCrossDocumentValidation(validation);
+        await storage.createCrossDocValidation({
+          ...validation,
+        }, userId);
       }
 
       res.json({ validations, count: validations.length });
@@ -921,6 +1010,11 @@ export async function registerRoutes(
       console.error("Cross-document validation error:", error);
       res.status(500).json({ error: "Failed to validate cross-document consistency" });
     }
+  });
+
+  app.post("/api/claims/:claimId/validate-cross-document", async (req, res) => {
+    // Alias for backward compatibility
+    return app._router.handle({ ...req, url: `/api/claims/${req.params.claimId}/validate`, method: 'POST' }, res);
   });
 
   return httpServer;

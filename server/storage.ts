@@ -26,13 +26,21 @@ export interface IStorage {
   
   // Canonical schema methods
   getCorrections(documentId: string, userId?: string): Promise<Correction[]>;
+  getCorrectionsByClaimId(claimId: string, userId?: string): Promise<Correction[]>;
+  createCorrection(correction: Correction, userId?: string): Promise<Correction>;
   saveCorrection(correction: Correction, userId?: string): Promise<void>;
-  updateCorrectionStatus(correctionId: string, status: Correction["status"], userId?: string): Promise<void>;
+  updateCorrectionStatus(correctionId: string, status: Correction["status"], appliedBy?: string, method?: string, userId?: string): Promise<void>;
   getAnnotations(documentId: string, userId?: string): Promise<Annotation[]>;
+  createAnnotation(annotation: Annotation, userId?: string): Promise<Annotation>;
   saveAnnotation(annotation: Annotation, userId?: string): Promise<void>;
+  updateAnnotation(id: string, updates: Partial<Annotation>, userId?: string): Promise<Annotation>;
   deleteAnnotation(annotationId: string, userId?: string): Promise<void>;
+  getCrossDocValidations(claimId: string, userId?: string): Promise<CrossDocumentValidation[]>;
   getCrossDocumentValidations(claimId: string, userId?: string): Promise<CrossDocumentValidation[]>;
+  createCrossDocValidation(validation: CrossDocumentValidation, userId?: string): Promise<CrossDocumentValidation>;
   saveCrossDocumentValidation(validation: CrossDocumentValidation, userId?: string): Promise<void>;
+  resolveCrossDocValidation(id: string, resolvedValue: string, resolvedBy: string): Promise<void>;
+  escalateCrossDocValidation(id: string, reason: string): Promise<void>;
   updateCrossDocumentValidationStatus(validationId: string, status: CrossDocumentValidation["status"], resolvedValue?: string, userId?: string): Promise<void>;
   saveCorrectionPayload(payload: DocumentCorrectionPayload, userId?: string): Promise<void>;
 }
@@ -514,6 +522,90 @@ export class SupabaseStorage implements IStorage {
     }));
   }
 
+  async getCorrectionsByClaimId(claimId: string, userId?: string): Promise<Correction[]> {
+    if (!supabaseAdmin) return [];
+    
+    let query = supabaseAdmin
+      .from('corrections')
+      .select('*')
+      .eq('claim_id', claimId);
+    
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+    
+    const { data, error } = await query.order('created_at', { ascending: false });
+    
+    if (error) return [];
+    
+    return (data || []).map(row => ({
+      id: row.id,
+      type: row.type as Correction["type"],
+      severity: row.severity as Correction["severity"],
+      location: row.location,
+      found_value: row.found_value || "",
+      expected_value: row.expected_value || "",
+      confidence: row.confidence,
+      requires_human_review: row.requires_human_review,
+      recommended_action: row.recommended_action as Correction["recommended_action"],
+      evidence: row.evidence,
+      form_field_name: row.form_field_name,
+      status: row.status as Correction["status"],
+      applied_at: row.applied_at,
+      applied_by: row.applied_by,
+      applied_method: row.applied_method,
+    }));
+  }
+
+  async createCorrection(correction: Correction, userId?: string): Promise<Correction> {
+    if (!supabaseAdmin) throw new Error('Supabase not configured');
+    
+    // Get claim_id from document_id
+    const doc = await this.getDocument(correction.evidence.source_document || "");
+    const claimId = doc?.claimId || "";
+    
+    const { data, error } = await supabaseAdmin.from('corrections').insert({
+      id: correction.id,
+      document_id: correction.evidence.source_document || "",
+      claim_id: claimId,
+      type: correction.type,
+      severity: correction.severity,
+      location: correction.location,
+      found_value: correction.found_value,
+      expected_value: correction.expected_value,
+      confidence: correction.confidence,
+      requires_human_review: correction.requires_human_review,
+      recommended_action: correction.recommended_action,
+      evidence: correction.evidence,
+      form_field_name: correction.form_field_name,
+      status: correction.status,
+      applied_at: correction.applied_at,
+      applied_by: correction.applied_by,
+      applied_method: correction.applied_method,
+      user_id: userId,
+    }).select().single();
+    
+    if (error) throw error;
+    
+    return {
+      id: data.id,
+      type: data.type as Correction["type"],
+      severity: data.severity as Correction["severity"],
+      location: data.location,
+      found_value: data.found_value || "",
+      expected_value: data.expected_value || "",
+      confidence: data.confidence,
+      requires_human_review: data.requires_human_review,
+      recommended_action: data.recommended_action as Correction["recommended_action"],
+      evidence: data.evidence,
+      form_field_name: data.form_field_name,
+      status: data.status as Correction["status"],
+      applied_at: data.applied_at,
+      applied_by: data.applied_by,
+      applied_method: data.applied_method,
+    };
+  }
+
   async saveCorrection(correction: Correction, userId?: string): Promise<void> {
     if (!supabaseAdmin) return;
     
@@ -543,13 +635,22 @@ export class SupabaseStorage implements IStorage {
     }
   }
 
-  async updateCorrectionStatus(correctionId: string, status: Correction["status"], userId?: string): Promise<void> {
+  async updateCorrectionStatus(
+    correctionId: string,
+    status: Correction["status"],
+    appliedBy?: string,
+    method?: string,
+    userId?: string
+  ): Promise<void> {
     if (!supabaseAdmin) return;
     
     const update: any = { status };
     if (status === "applied") {
       update.applied_at = new Date().toISOString();
-      update.applied_by = userId;
+      update.applied_by = appliedBy || userId;
+      if (method) {
+        update.applied_method = method;
+      }
     }
     
     const { error } = await supabaseAdmin
@@ -589,12 +690,42 @@ export class SupabaseStorage implements IStorage {
     }));
   }
 
+  async createAnnotation(annotation: Annotation, userId?: string): Promise<Annotation> {
+    if (!supabaseAdmin) throw new Error('Supabase not configured');
+    
+    const { data, error } = await supabaseAdmin.from('annotations').insert({
+      id: annotation.id,
+      document_id: "", // Will be set by caller
+      type: annotation.type,
+      location: annotation.location,
+      text: annotation.text,
+      color: annotation.color,
+      related_correction_id: annotation.related_correction_id,
+      related_validation_id: annotation.related_validation_id,
+      created_by: userId || annotation.created_by,
+    }).select().single();
+    
+    if (error) throw error;
+    
+    return {
+      id: data.id,
+      type: data.type as Annotation["type"],
+      location: data.location,
+      text: data.text,
+      color: data.color,
+      related_correction_id: data.related_correction_id,
+      related_validation_id: data.related_validation_id,
+      created_by: data.created_by,
+      created_at: data.created_at,
+    };
+  }
+
   async saveAnnotation(annotation: Annotation, userId?: string): Promise<void> {
     if (!supabaseAdmin) return;
     
-    const { error } = await supabaseAdmin.from('annotations').insert({
+    const { error } = await supabaseAdmin.from('annotations').upsert({
       id: annotation.id,
-      document_id: annotation.location.bbox?.pageIndex ? "" : "", // Need document_id from context
+      document_id: "", // Need document_id from context
       type: annotation.type,
       location: annotation.location,
       text: annotation.text,
@@ -607,6 +738,36 @@ export class SupabaseStorage implements IStorage {
     if (error) throw error;
   }
 
+  async updateAnnotation(id: string, updates: Partial<Annotation>, userId?: string): Promise<Annotation> {
+    if (!supabaseAdmin) throw new Error('Supabase not configured');
+    
+    const updateData: any = {};
+    if (updates.text !== undefined) updateData.text = updates.text;
+    if (updates.color !== undefined) updateData.color = updates.color;
+    if (updates.location !== undefined) updateData.location = updates.location;
+    
+    const { data, error } = await supabaseAdmin
+      .from('annotations')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    return {
+      id: data.id,
+      type: data.type as Annotation["type"],
+      location: data.location,
+      text: data.text,
+      color: data.color,
+      related_correction_id: data.related_correction_id,
+      related_validation_id: data.related_validation_id,
+      created_by: data.created_by,
+      created_at: data.created_at,
+    };
+  }
+
   async deleteAnnotation(annotationId: string, userId?: string): Promise<void> {
     if (!supabaseAdmin) return;
     
@@ -617,6 +778,10 @@ export class SupabaseStorage implements IStorage {
     
     const { error } = await query;
     if (error) throw error;
+  }
+
+  async getCrossDocValidations(claimId: string, userId?: string): Promise<CrossDocumentValidation[]> {
+    return this.getCrossDocumentValidations(claimId, userId);
   }
 
   async getCrossDocumentValidations(claimId: string, userId?: string): Promise<CrossDocumentValidation[]> {
@@ -650,6 +815,42 @@ export class SupabaseStorage implements IStorage {
     }));
   }
 
+  async createCrossDocValidation(validation: CrossDocumentValidation, userId?: string): Promise<CrossDocumentValidation> {
+    if (!supabaseAdmin) throw new Error('Supabase not configured');
+    
+    const { data, error } = await supabaseAdmin.from('cross_document_validations').insert({
+      id: validation.id,
+      claim_id: "", // Will be set by caller
+      field: validation.field,
+      severity: validation.severity,
+      documents: validation.documents,
+      expected_value: validation.expected_value,
+      recommended_action: validation.recommended_action,
+      reasoning: validation.reasoning,
+      status: validation.status,
+      resolved_value: validation.resolved_value,
+      resolved_by: validation.resolved_by,
+      resolved_at: validation.resolved_at,
+      user_id: userId,
+    }).select().single();
+    
+    if (error) throw error;
+    
+    return {
+      id: data.id,
+      field: data.field as CrossDocumentValidation["field"],
+      severity: data.severity as CrossDocumentValidation["severity"],
+      documents: data.documents,
+      expected_value: data.expected_value,
+      recommended_action: data.recommended_action as CrossDocumentValidation["recommended_action"],
+      reasoning: data.reasoning,
+      status: data.status as CrossDocumentValidation["status"],
+      resolved_value: data.resolved_value,
+      resolved_by: data.resolved_by,
+      resolved_at: data.resolved_at,
+    };
+  }
+
   async saveCrossDocumentValidation(validation: CrossDocumentValidation, userId?: string): Promise<void> {
     if (!supabaseAdmin) return;
     
@@ -668,6 +869,36 @@ export class SupabaseStorage implements IStorage {
       resolved_at: validation.resolved_at,
       user_id: userId,
     });
+    
+    if (error) throw error;
+  }
+
+  async resolveCrossDocValidation(id: string, resolvedValue: string, resolvedBy: string): Promise<void> {
+    if (!supabaseAdmin) throw new Error('Supabase not configured');
+    
+    const { error } = await supabaseAdmin
+      .from('cross_document_validations')
+      .update({
+        status: 'resolved',
+        resolved_value: resolvedValue,
+        resolved_by: resolvedBy,
+        resolved_at: new Date().toISOString(),
+      })
+      .eq('id', id);
+    
+    if (error) throw error;
+  }
+
+  async escalateCrossDocValidation(id: string, reason: string): Promise<void> {
+    if (!supabaseAdmin) throw new Error('Supabase not configured');
+    
+    const { error } = await supabaseAdmin
+      .from('cross_document_validations')
+      .update({
+        status: 'escalated',
+        escalation_reason: reason,
+      })
+      .eq('id', id);
     
     if (error) throw error;
   }
@@ -881,17 +1112,37 @@ export class MemStorage implements IStorage {
     );
   }
 
+  async getCorrectionsByClaimId(claimId: string, userId?: string): Promise<Correction[]> {
+    return Array.from(this.corrections.values()).filter(
+      c => c.evidence.source_document && this.documents.get(c.evidence.source_document)?.claimId === claimId
+    );
+  }
+
+  async createCorrection(correction: Correction, userId?: string): Promise<Correction> {
+    this.corrections.set(correction.id, correction);
+    return correction;
+  }
+
   async saveCorrection(correction: Correction, userId?: string): Promise<void> {
     this.corrections.set(correction.id, correction);
   }
 
-  async updateCorrectionStatus(correctionId: string, status: Correction["status"], userId?: string): Promise<void> {
+  async updateCorrectionStatus(
+    correctionId: string,
+    status: Correction["status"],
+    appliedBy?: string,
+    method?: string,
+    userId?: string
+  ): Promise<void> {
     const correction = this.corrections.get(correctionId);
     if (correction) {
       correction.status = status;
       if (status === "applied") {
         correction.applied_at = new Date().toISOString();
-        correction.applied_by = userId;
+        correction.applied_by = appliedBy || userId;
+        if (method) {
+          correction.applied_method = method;
+        }
       }
       this.corrections.set(correctionId, correction);
     }
@@ -903,6 +1154,15 @@ export class MemStorage implements IStorage {
     );
   }
 
+  async createAnnotation(annotation: Annotation, userId?: string): Promise<Annotation> {
+    const created = {
+      ...annotation,
+      created_by: userId || annotation.created_by,
+    };
+    this.annotations.set(annotation.id, created);
+    return created;
+  }
+
   async saveAnnotation(annotation: Annotation, userId?: string): Promise<void> {
     this.annotations.set(annotation.id, {
       ...annotation,
@@ -910,18 +1170,62 @@ export class MemStorage implements IStorage {
     });
   }
 
+  async updateAnnotation(id: string, updates: Partial<Annotation>, userId?: string): Promise<Annotation> {
+    const existing = this.annotations.get(id);
+    if (!existing) throw new Error('Annotation not found');
+    
+    const updated = {
+      ...existing,
+      ...updates,
+    };
+    this.annotations.set(id, updated);
+    return updated;
+  }
+
   async deleteAnnotation(annotationId: string, userId?: string): Promise<void> {
     this.annotations.delete(annotationId);
   }
 
+  async getCrossDocValidations(claimId: string, userId?: string): Promise<CrossDocumentValidation[]> {
+    return this.getCrossDocumentValidations(claimId, userId);
+  }
+
   async getCrossDocumentValidations(claimId: string, userId?: string): Promise<CrossDocumentValidation[]> {
     return Array.from(this.crossDocValidations.values()).filter(
-      v => v.documents.some(d => d.document_id.startsWith(claimId)) // Simplified check
+      v => v.documents.some(d => {
+        const doc = this.documents.get(d.document_id);
+        return doc?.claimId === claimId;
+      })
     );
+  }
+
+  async createCrossDocValidation(validation: CrossDocumentValidation, userId?: string): Promise<CrossDocumentValidation> {
+    this.crossDocValidations.set(validation.id, validation);
+    return validation;
   }
 
   async saveCrossDocumentValidation(validation: CrossDocumentValidation, userId?: string): Promise<void> {
     this.crossDocValidations.set(validation.id, validation);
+  }
+
+  async resolveCrossDocValidation(id: string, resolvedValue: string, resolvedBy: string): Promise<void> {
+    const validation = this.crossDocValidations.get(id);
+    if (validation) {
+      validation.status = "resolved";
+      validation.resolved_value = resolvedValue;
+      validation.resolved_by = resolvedBy;
+      validation.resolved_at = new Date().toISOString();
+      this.crossDocValidations.set(id, validation);
+    }
+  }
+
+  async escalateCrossDocValidation(id: string, reason: string): Promise<void> {
+    const validation = this.crossDocValidations.get(id);
+    if (validation) {
+      validation.status = "escalated" as CrossDocumentValidation["status"];
+      // Note: escalation_reason not in schema, but we can add it if needed
+      this.crossDocValidations.set(id, validation);
+    }
   }
 
   async updateCrossDocumentValidationStatus(

@@ -16,9 +16,11 @@ import type { CrossDocumentValidation, ValidatedField } from "@shared/schemas";
 import { cn } from "@/lib/utils";
 
 interface CrossDocumentValidationPanelProps {
+  claimId?: string;
   validations: CrossDocumentValidation[];
   onResolve?: (validationId: string, resolvedValue: string) => void;
   onIgnore?: (validationId: string) => void;
+  onEscalate?: (validationId: string, reason: string) => void;
 }
 
 const severityColors = {
@@ -34,9 +36,11 @@ const severityIcons = {
 };
 
 export function CrossDocumentValidationPanel({
+  claimId,
   validations,
   onResolve,
   onIgnore,
+  onEscalate,
 }: CrossDocumentValidationPanelProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
@@ -216,7 +220,7 @@ function ValidationCard({
             </div>
           )}
           {validation.status === "pending" && (
-            <div className="flex gap-2 pt-2">
+            <div className="flex gap-2 pt-2 flex-wrap">
               {onResolve && validation.expected_value && (
                 <Button
                   size="sm"
@@ -225,7 +229,18 @@ function ValidationCard({
                   onClick={() => onResolve(validation.id, validation.expected_value!)}
                 >
                   <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                  Resolve with Expected Value
+                  Resolve
+                </Button>
+              )}
+              {onEscalate && validation.recommended_action === "escalate" && (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="h-8 text-xs"
+                  onClick={() => onEscalate(validation.id, "Escalated by user")}
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+                  Escalate
                 </Button>
               )}
               {onIgnore && (

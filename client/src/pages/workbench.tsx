@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { api } from "@/lib/api";
@@ -6,7 +6,11 @@ import { useNutrientViewer } from "@/hooks/use-nutrient-viewer";
 import { useAuth } from "@/hooks/use-auth";
 import { FixEngine } from "@/lib/fix-engine";
 import { PDFAdapterFactory } from "@/lib/adapters";
+import type { PDFProcessorAdapter } from "@/lib/adapters";
 import type { Issue, IssueStatus, Claim, Document, SessionData, ExtractedClaimInfo } from "@shared/schema";
+import type { Annotation, CrossDocumentValidation, Correction } from "@shared/schemas";
+import { AnnotationPanel } from "@/components/annotation-panel";
+import { CrossDocumentValidationPanel } from "@/components/cross-document-validation-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -46,7 +50,14 @@ import {
   LogIn,
   Bell,
   Monitor,
-  FileDown
+  FileDown,
+  Highlighter,
+  Search,
+  Type,
+  Calendar,
+  Phone,
+  MapPin,
+  Hash
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -87,6 +98,13 @@ export default function Workbench() {
   const [globalDragging, setGlobalDragging] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const dragCounterRef = useRef(0);
+  const [pdfAdapter, setPdfAdapter] = useState<PDFProcessorAdapter | null>(null);
+  const [fixEngine, setFixEngine] = useState<FixEngine | null>(null);
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [crossDocValidations, setCrossDocValidations] = useState<CrossDocumentValidation[]>([]);
+  const [showAnnotationPanel, setShowAnnotationPanel] = useState(false);
+  const [showValidationPanel, setShowValidationPanel] = useState(false);
+  const [currentPage, setCurrentPage] = useState<number>(0);
   
   // Settings state
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
@@ -209,10 +227,58 @@ export default function Workbench() {
     instant: instantConfig,
   });
 
+  // Initialize adapter when viewer instance is ready
+  useEffect(() => {
+    if (instance && isDocumentLoaded) {
+      PDFAdapterFactory.create("nutrient", instance)
+        .then((adapter) => {
+          setPdfAdapter(adapter);
+          setFixEngine(new FixEngine(adapter, instance));
+        })
+        .catch((err) => {
+          console.error("Failed to create PDF adapter:", err);
+        });
+    } else {
+      setPdfAdapter(null);
+      setFixEngine(null);
+    }
+  }, [instance, isDocumentLoaded]);
+
+  // Fetch annotations when document is loaded
+  const { data: fetchedAnnotations } = useQuery({
+    queryKey: ["annotations", selectedDocumentId],
+    queryFn: () => api.getAnnotations(selectedDocumentId),
+    enabled: !!selectedDocumentId && isDocumentLoaded,
+  });
+
+  useEffect(() => {
+    if (fetchedAnnotations) {
+      setAnnotations(fetchedAnnotations);
+    } else {
+      setAnnotations([]);
+    }
+  }, [fetchedAnnotations]);
+
+  // Fetch cross-document validations when claim is selected
+  const { data: fetchedValidations } = useQuery({
+    queryKey: ["crossDocValidations", selectedClaimId],
+    queryFn: () => api.getCrossDocumentValidations(selectedClaimId),
+    enabled: !!selectedClaimId,
+  });
+
+  useEffect(() => {
+    if (fetchedValidations) {
+      setCrossDocValidations(fetchedValidations);
+    } else {
+      setCrossDocValidations([]);
+    }
+  }, [fetchedValidations]);
+
   useEffect(() => {
     setIsDocumentLoaded(false);
     setSessionData(null);
     setIssueAnnotations(new Map());
+    setAnnotations([]);
   }, [selectedDocumentId]);
 
   useEffect(() => {
@@ -397,12 +463,16 @@ export default function Workbench() {
   };
 
   const handleApplySuggestedFix = async (issue: Issue) => {
-    if (!instance) return;
+    if (!fixEngine) {
+      toast({
+        title: "Not Ready",
+        description: "PDF viewer is still initializing",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
-      // Use adapter pattern for product-agnostic PDF processing
-      const adapter = await PDFAdapterFactory.create("nutrient", instance);
-      const fixEngine = new FixEngine(adapter, instance);
       const result = await fixEngine.applyFix(issue);
 
       if (result.success) {
@@ -474,6 +544,140 @@ export default function Workbench() {
       title: "Issue Rejected",
       description: "Marked as false positive",
     });
+  };
+
+  // Annotation handlers
+  const handleCreateAnnotation = async (annotation: Annotation) => {
+    if (!selectedDocumentId) return;
+    
+    try {
+      await api.saveAnnotation(selectedDocumentId, annotation);
+      setAnnotations((prev) => [...prev, annotation]);
+      
+      // Also create via adapter if available
+      if (pdfAdapter) {
+        await pdfAdapter.createAnnotation(annotation);
+      }
+      
+      toast({
+        title: "Annotation Created",
+        description: `${annotation.type} annotation added`,
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to Create Annotation",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteAnnotation = async (annotationId: string) => {
+    try {
+      await api.deleteAnnotation(annotationId);
+      setAnnotations((prev) => prev.filter((a) => a.id !== annotationId));
+      
+      toast({
+        title: "Annotation Deleted",
+        description: "Annotation removed",
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to Delete Annotation",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Cross-document validation handlers
+  const handleResolveValidation = async (validationId: string, resolvedValue: string) => {
+    try {
+      await api.updateCrossDocumentValidationStatus(validationId, "resolved", resolvedValue);
+      setCrossDocValidations((prev) =>
+        prev.map((v) =>
+          v.id === validationId
+            ? { ...v, status: "resolved" as const, resolved_value: resolvedValue }
+            : v
+        )
+      );
+      
+      toast({
+        title: "Validation Resolved",
+        description: `Resolved with value: ${resolvedValue}`,
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to Resolve Validation",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleIgnoreValidation = async (validationId: string) => {
+    try {
+      await api.updateCrossDocumentValidationStatus(validationId, "ignored");
+      setCrossDocValidations((prev) =>
+        prev.map((v) =>
+          v.id === validationId ? { ...v, status: "ignored" as const } : v
+        )
+      );
+      
+      toast({
+        title: "Validation Ignored",
+        description: "Validation marked as ignored",
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to Ignore Validation",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleEscalateValidation = async (validationId: string, reason: string) => {
+    try {
+      await api.escalateCrossDocValidation(validationId, reason);
+      setCrossDocValidations((prev) =>
+        prev.map((v) =>
+          v.id === validationId ? { ...v, status: "escalated" as const } : v
+        )
+      );
+      
+      toast({
+        title: "Validation Escalated",
+        description: "Validation has been escalated for review",
+        variant: "destructive",
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to Escalate Validation",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleTriggerValidation = async () => {
+    if (!selectedClaimId) return;
+    
+    try {
+      const result = await api.validateCrossDocument(selectedClaimId);
+      setCrossDocValidations(result.validations);
+      
+      toast({
+        title: "Validation Complete",
+        description: `Found ${result.count} inconsistencies`,
+      });
+    } catch (error) {
+      toast({
+        title: "Validation Failed",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleSave = async () => {
@@ -567,6 +771,28 @@ export default function Workbench() {
   }, [issueBundle, issueStatuses]);
 
   const showSchemaWarning = health?.supabase && !health?.schemaValid;
+
+  // Helper functions for correction type display
+  const getCorrectionTypeIcon = (type: string) => {
+    const icons: Record<string, typeof Type> = {
+      typo: Type,
+      date_error: Calendar,
+      phone_format: Phone,
+      name_mismatch: User,
+      address_error: MapPin,
+      numeric_error: Hash,
+      missing_value: AlertCircle,
+      format_standardization: FileText,
+      data_inconsistency: AlertTriangle,
+    };
+    return icons[type.toLowerCase().replace(/[^a-z]/g, "")] || null;
+  };
+
+  const formatCorrectionType = (type: string): string => {
+    return type
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (l) => l.toUpperCase());
+  };
 
   return (
     <div className="h-screen flex flex-col bg-background relative">
@@ -681,6 +907,44 @@ export default function Workbench() {
 
             {/* Right Actions */}
             <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+              {/* Annotations Button */}
+              {isDocumentLoaded && selectedDocumentId && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 relative"
+                  onClick={() => setShowAnnotationPanel(!showAnnotationPanel)}
+                  data-testid="button-annotations"
+                  aria-label="Annotations"
+                >
+                  <Highlighter className="h-4 w-4" />
+                  {annotations.length > 0 && (
+                    <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[10px]">
+                      {annotations.length}
+                    </Badge>
+                  )}
+                </Button>
+              )}
+
+              {/* Cross-Document Validation Button */}
+              {selectedClaimId && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 relative"
+                  onClick={() => setShowValidationPanel(!showValidationPanel)}
+                  data-testid="button-cross-doc-validation"
+                  aria-label="Cross-Document Validation"
+                >
+                  <AlertTriangle className="h-4 w-4" />
+                  {crossDocValidations.filter((v) => v.status === "pending").length > 0 && (
+                    <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[10px] bg-red-500">
+                      {crossDocValidations.filter((v) => v.status === "pending").length}
+                    </Badge>
+                  )}
+                </Button>
+              )}
+
               {/* Settings Dialog */}
               <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
                 <DialogTrigger asChild>
@@ -1164,7 +1428,7 @@ export default function Workbench() {
                     >
                       <CardHeader className="pb-4">
                         <div className="flex items-start justify-between gap-3 mb-3">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
                             <SeverityIcon className={cn("h-5 w-5 flex-shrink-0", getSeverityColor(issue.severity).split(" ")[0])} />
                             <Badge 
                               variant={statusInfo.variant} 
@@ -1174,20 +1438,29 @@ export default function Workbench() {
                               <StatusIcon className="h-3.5 w-3.5" />
                               {statusInfo.label}
                             </Badge>
+                            {/* Correction Type Badge */}
+                            {getCorrectionTypeIcon(issue.type) && (
+                              <Badge variant="outline" className="text-xs flex items-center gap-1">
+                                {React.createElement(getCorrectionTypeIcon(issue.type)!, { className: "h-3 w-3" })}
+                                {formatCorrectionType(issue.type)}
+                              </Badge>
+                            )}
                           </div>
-                          <Badge 
-                            variant={issue.severity === "critical" ? "destructive" : "outline"} 
-                            className={cn("text-sm px-2.5 py-1", getSeverityColor(issue.severity))}
-                          >
-                            {issue.severity}
-                          </Badge>
+                          <div className="flex items-center gap-2">
+                            <Badge 
+                              variant={issue.severity === "critical" ? "destructive" : "outline"} 
+                              className={cn("text-sm px-2.5 py-1", getSeverityColor(issue.severity))}
+                            >
+                              {issue.severity}
+                            </Badge>
+                          </div>
                         </div>
                         <CardTitle className="text-base leading-snug">
                           {issue.label || issue.type}
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="pt-0 space-y-4">
-                        <div className="flex items-center gap-5 text-sm text-muted-foreground">
+                        <div className="flex items-center gap-5 text-sm text-muted-foreground flex-wrap">
                           <span className="flex items-center gap-1.5">
                             <FileText className="h-4 w-4" />
                             Page {issue.pageIndex + 1}
@@ -1196,6 +1469,13 @@ export default function Workbench() {
                             <Info className="h-4 w-4" />
                             {Math.round(issue.confidence * 100)}% confidence
                           </span>
+                          {/* Dual Location Indicator - Note: old Issue schema doesn't have search_text, but we show if available */}
+                          {issue.rect && (
+                            <span className="flex items-center gap-1.5" title="Has precise bbox location">
+                              <Search className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span className="text-xs">Located</span>
+                            </span>
+                          )}
                         </div>
 
                         {issue.foundValue && issue.expectedValue && (
@@ -1295,13 +1575,79 @@ export default function Workbench() {
               </div>
             </div>
           ) : (
-            <div 
-              ref={containerRef} 
-              className="h-full w-full"
-              data-testid="viewer-container"
-            />
+            <div className="h-full flex">
+              <div 
+                ref={containerRef} 
+                className="flex-1 h-full"
+                data-testid="viewer-container"
+              />
+              
+              {/* Annotation Panel (slide-out) */}
+              {showAnnotationPanel && isDocumentLoaded && selectedDocumentId && (
+                <div className="w-[380px] border-l border-[#E3DFE8] bg-white flex flex-col shadow-lg">
+                  <div className="p-4 border-b border-[#E3DFE8] flex items-center justify-between">
+                    <h3 className="font-display font-semibold text-[#342A4F]">Annotations</h3>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setShowAnnotationPanel(false)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="flex-1 overflow-hidden">
+                    <AnnotationPanel
+                      adapter={pdfAdapter}
+                      documentId={selectedDocumentId}
+                      annotations={annotations}
+                      onCreateAnnotation={handleCreateAnnotation}
+                      onDeleteAnnotation={handleDeleteAnnotation}
+                      currentPage={currentPage}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </main>
+
+        {/* Cross-Document Validation Panel (slide-out from right) */}
+        {showValidationPanel && selectedClaimId && (
+          <div className="w-[420px] border-l border-[#E3DFE8] bg-white flex flex-col shadow-lg">
+            <div className="p-4 border-b border-[#E3DFE8] flex items-center justify-between">
+              <h3 className="font-display font-semibold text-[#342A4F]">Cross-Document Validation</h3>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={handleTriggerValidation}
+                >
+                  <Search className="h-3.5 w-3.5 mr-1" />
+                  Validate
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setShowValidationPanel(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <CrossDocumentValidationPanel
+                claimId={selectedClaimId}
+                validations={crossDocValidations}
+                onResolve={handleResolveValidation}
+                onIgnore={handleIgnoreValidation}
+                onEscalate={handleEscalateValidation}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

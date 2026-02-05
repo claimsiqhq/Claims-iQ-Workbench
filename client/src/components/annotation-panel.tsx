@@ -14,13 +14,17 @@ import {
   X
 } from "lucide-react";
 import type { Annotation, AnnotationType } from "@shared/schemas";
+import type { PDFProcessorAdapter } from "@/lib/adapters";
 import { cn } from "@/lib/utils";
 
 interface AnnotationPanelProps {
+  adapter?: PDFProcessorAdapter | null;
+  documentId: string;
   annotations: Annotation[];
-  onCreateAnnotation?: (type: AnnotationType, location: Annotation["location"]) => void;
-  onDeleteAnnotation?: (id: string) => void;
+  onCreateAnnotation?: (annotation: Annotation) => Promise<void>;
+  onDeleteAnnotation?: (id: string) => Promise<void>;
   selectedPageIndex?: number;
+  currentPage?: number;
 }
 
 const annotationTypeIcons = {
@@ -40,16 +44,20 @@ const annotationTypeColors = {
 };
 
 export function AnnotationPanel({
+  adapter,
+  documentId,
   annotations,
   onCreateAnnotation,
   onDeleteAnnotation,
   selectedPageIndex,
+  currentPage,
 }: AnnotationPanelProps) {
   const [filterType, setFilterType] = useState<AnnotationType | "all">("all");
 
   const filteredAnnotations = annotations.filter((ann) => {
     if (filterType !== "all" && ann.type !== filterType) return false;
-    if (selectedPageIndex !== undefined && ann.location.bbox?.pageIndex !== selectedPageIndex) {
+    const pageIndex = currentPage !== undefined ? currentPage : selectedPageIndex;
+    if (pageIndex !== undefined && ann.location.bbox?.pageIndex !== pageIndex) {
       return false;
     }
     return true;
@@ -61,6 +69,29 @@ export function AnnotationPanel({
     return acc;
   }, {} as Record<AnnotationType, Annotation[]>);
 
+  const handleCreateAnnotation = async (type: AnnotationType) => {
+    if (!onCreateAnnotation) return;
+    
+    const pageIndex = currentPage !== undefined ? currentPage : selectedPageIndex || 0;
+    const annotation: Annotation = {
+      id: crypto.randomUUID(),
+      type,
+      location: {
+        bbox: {
+          pageIndex,
+          left: 0,
+          top: 0,
+          width: 100,
+          height: 20,
+        },
+      },
+      created_by: "current-user", // Will be replaced by actual user
+      created_at: new Date().toISOString(),
+    };
+    
+    await onCreateAnnotation(annotation);
+  };
+
   return (
     <Card className="border-2 border-[#E3DFE8] shadow-sm h-full flex flex-col">
       <CardHeader className="pb-3">
@@ -71,23 +102,12 @@ export function AnnotationPanel({
               {annotations.length} total
             </CardDescription>
           </div>
-          {onCreateAnnotation && (
+          {onCreateAnnotation && adapter && (
             <Button
               size="sm"
               variant="outline"
               className="h-8 gap-1.5"
-              onClick={() => {
-                // Create a default highlight annotation
-                onCreateAnnotation("highlight", {
-                  bbox: {
-                    pageIndex: selectedPageIndex || 0,
-                    left: 0,
-                    top: 0,
-                    width: 100,
-                    height: 20,
-                  },
-                });
-              }}
+              onClick={() => handleCreateAnnotation("highlight")}
             >
               <Plus className="h-3.5 w-3.5" />
               Add

@@ -205,15 +205,22 @@ export const api = {
   },
 
   async getCrossDocumentValidations(claimId: string): Promise<CrossDocumentValidation[]> {
-    const res = await fetch(`${API_BASE}/api/claims/${claimId}/cross-document-validations`);
+    const res = await fetch(`${API_BASE}/api/claims/${claimId}/validations`);
     if (!res.ok) throw new Error("Failed to fetch cross-document validations");
     return res.json();
   },
 
   async validateCrossDocument(claimId: string): Promise<{ validations: CrossDocumentValidation[]; count: number }> {
-    const res = await fetch(`${API_BASE}/api/claims/${claimId}/validate-cross-document`, {
+    // Try new endpoint first, fallback to old one
+    let res = await fetch(`${API_BASE}/api/claims/${claimId}/validate`, {
       method: "POST",
     });
+    if (!res.ok) {
+      // Fallback to old endpoint
+      res = await fetch(`${API_BASE}/api/claims/${claimId}/validate-cross-document`, {
+        method: "POST",
+      });
+    }
     if (!res.ok) throw new Error("Failed to validate cross-document consistency");
     return res.json();
   },
@@ -229,6 +236,24 @@ export const api = {
       body: JSON.stringify({ status, resolved_value: resolvedValue }),
     });
     if (!res.ok) throw new Error("Failed to update validation status");
+  },
+
+  async resolveCrossDocValidation(validationId: string, resolvedValue: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/validations/${validationId}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resolved_value: resolvedValue }),
+    });
+    if (!res.ok) throw new Error("Failed to resolve validation");
+  },
+
+  async escalateCrossDocValidation(validationId: string, reason: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/validations/${validationId}/escalate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    if (!res.ok) throw new Error("Failed to escalate validation");
   },
 
   async saveCorrectionPayload(payload: DocumentCorrectionPayload): Promise<void> {
