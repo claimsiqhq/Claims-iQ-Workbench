@@ -118,7 +118,10 @@ export function validateAgainstSchema(payload: any): { valid: boolean; errors?: 
     }
     return { valid: true };
   } catch (err) {
-    return { valid: true };
+    return {
+      valid: false,
+      errors: [`Schema compilation error: ${err instanceof Error ? err.message : "unknown error"}`],
+    };
   }
 }
 

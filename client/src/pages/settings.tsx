@@ -8,6 +8,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ArrowLeft, Palette, User, FileJson, Upload, Trash2, CheckCircle, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { useSyncTheme, type Theme, STORAGE_KEY_OPERATOR } from "@/lib/theme";
+import { supabase } from "@/lib/supabase";
+
+async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(options.headers);
+  if (supabase) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        headers.set("Authorization", `Bearer ${session.access_token}`);
+      }
+    } catch {}
+  }
+  if (!headers.has("Content-Type") && options.body && typeof options.body === "string") {
+    headers.set("Content-Type", "application/json");
+  }
+  return fetch(url, { ...options, headers, credentials: "include" });
+}
 
 export { STORAGE_KEY_OPERATOR };
 
@@ -29,7 +46,7 @@ function SchemaManagementCard() {
   const fetchSchema = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/schema", { credentials: "include" });
+      const res = await authFetch("/api/schema");
       if (res.ok) {
         const json = await res.json();
         setSchemaInfo(json.data || json);
@@ -60,10 +77,8 @@ function SchemaManagementCard() {
         return;
       }
 
-      const res = await fetch("/api/schema", {
+      const res = await authFetch("/api/schema", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify(parsed),
       });
 
@@ -86,9 +101,8 @@ function SchemaManagementCard() {
   const handleReset = async () => {
     setMessage(null);
     try {
-      const res = await fetch("/api/schema", {
+      const res = await authFetch("/api/schema", {
         method: "DELETE",
-        credentials: "include",
       });
 
       if (res.ok) {
