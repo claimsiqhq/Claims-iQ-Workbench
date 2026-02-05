@@ -94,13 +94,17 @@ export const api = {
   async getClaims(): Promise<Claim[]> {
     const res = await authenticatedFetch(`${API_BASE}/api/claims`);
     const data = await res.json();
-    return data.data || data;
+    // Handle paginated response: { data: { data: [], pagination: {...} } }
+    const responseData = data.data || data;
+    return Array.isArray(responseData) ? responseData : (responseData.data || []);
   },
 
   async getDocuments(claimId: string): Promise<Document[]> {
     const res = await authenticatedFetch(`${API_BASE}/api/claims/${claimId}/documents`);
     const data = await res.json();
-    return data.data || data;
+    // Handle paginated response
+    const responseData = data.data || data;
+    return Array.isArray(responseData) ? responseData : (responseData.data || []);
   },
 
   async getSession(documentId: string): Promise<SessionData> {
