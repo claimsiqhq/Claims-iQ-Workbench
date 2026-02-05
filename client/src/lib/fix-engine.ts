@@ -1,134 +1,240 @@
 import type { Issue } from "@shared/schema";
+import type {
+  Correction,
+  Annotation,
+  DocumentCorrectionPayload,
+} from "@shared/schemas";
+import type { PDFProcessorAdapter, CorrectionResult } from "./adapters/pdf-processor.interface";
+import { LocationResolver } from "./location-resolver";
 
+/**
+ * Processing Result
+ */
+export interface ProcessingResult {
+  corrections: Array<{ id: string } & CorrectionResult>;
+  annotations: Array<{ id: string } & { success: boolean; native_id: string; error?: string }>;
+  errors: Array<{ id: string; error: string }>;
+}
+
+/**
+ * Refactored Fix Engine
+ * Uses adapter pattern and location resolver for product-agnostic PDF processing
+ */
 export class FixEngine {
-  constructor(private instance: any) {}
+  private adapter: PDFProcessorAdapter;
+  private locationResolver: LocationResolver;
 
-  async applyFix(issue: Issue): Promise<{ success: boolean; method?: string; error?: string }> {
-    const { suggestedFix } = issue;
+  constructor(adapter: PDFProcessorAdapter, instance: any) {
+    this.adapter = adapter;
+    this.locationResolver = new LocationResolver(instance);
+  }
 
-    for (const strategy of suggestedFix.fallbackOrder) {
-      try {
-        switch (strategy) {
-          case "form_field":
-            const formSuccess = await this.tryFormFieldFix(issue);
-            if (formSuccess) {
-              return { success: true, method: "form_field" };
-            }
-            break;
+  /**
+   * Apply a single correction
+   */
+  async applyCorrection(correction: Correction): Promise<CorrectionResult> {
+    // Step 1: Resolve location (dual strategy)
+    const resolvedLocation = await this.locationResolver.resolveLocation(
+      correction.location
+    );
 
-          case "content_edit":
-            const contentSuccess = await this.tryContentEditFix(issue);
-            if (contentSuccess) {
-              return { success: true, method: "content_edit" };
-            }
-            break;
+    if (!resolvedLocation) {
+      return {
+        success: false,
+        method: "content_edit",
+        error: "Could not resolve location (bbox and search_text both failed)",
+      };
+    }
 
-          case "redaction_overlay":
-            const redactionSuccess = await this.tryRedactionOverlay(issue);
-            if (redactionSuccess) {
-              return { success: true, method: "redaction_overlay" };
-            }
-            break;
+    // Step 2: Apply via adapter (decoupled from Nutrient)
+    const correctionWithResolvedLocation: Correction = {
+      ...correction,
+      location: { bbox: resolvedLocation.bbox },
+    };
+
+    return this.adapter.applyTextCorrection(correctionWithResolvedLocation);
+  }
+
+  /**
+   * Apply an annotation
+   */
+  async applyAnnotation(annotation: Annotation): Promise<{ success: boolean; native_id: string; error?: string }> {
+    const resolvedLocation = await this.locationResolver.resolveLocation(
+      annotation.location
+    );
+
+    if (!resolvedLocation) {
+      return {
+        success: false,
+        native_id: "",
+        error: "Could not resolve annotation location",
+      };
+    }
+
+    const annotationWithResolvedLocation: Annotation = {
+      ...annotation,
+      location: { bbox: resolvedLocation.bbox },
+    };
+
+    return this.adapter.createAnnotation(annotationWithResolvedLocation);
+  }
+
+  /**
+   * Process a full correction payload
+   */
+  async processCorrectionPayload(
+    payload: DocumentCorrectionPayload
+  ): Promise<ProcessingResult> {
+    const results: ProcessingResult = {
+      corrections: [],
+      annotations: [],
+      errors: [],
+    };
+
+    for (const doc of payload.documents) {
+      // Apply corrections
+      for (const correction of doc.corrections) {
+        if (
+          correction.recommended_action === "auto_correct" &&
+          !correction.requires_human_review
+        ) {
+          try {
+            const result = await this.applyCorrection(correction);
+            results.corrections.push({
+              id: correction.id,
+              ...result,
+            });
+          } catch (err) {
+            results.errors.push({
+              id: correction.id,
+              error: err instanceof Error ? err.message : "Unknown error",
+            });
+          }
         }
-      } catch (err) {
-        console.warn(`Strategy ${strategy} failed:`, err);
-        continue;
+      }
+
+      // Create annotations
+      for (const annotation of doc.annotations) {
+        try {
+          const result = await this.applyAnnotation(annotation);
+          results.annotations.push({
+            id: annotation.id,
+            ...result,
+          });
+        } catch (err) {
+          results.errors.push({
+            id: annotation.id,
+            error: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
       }
     }
 
-    return { success: false, error: "All strategies failed" };
+    return results;
   }
 
-  private async tryFormFieldFix(issue: Issue): Promise<boolean> {
-    if (!issue.formFieldName || !issue.expectedValue) {
-      return false;
-    }
-
-    try {
-      const formFields = await this.instance.getFormFields();
-      const targetField = formFields.find((f: any) => f.name === issue.formFieldName);
-
-      if (!targetField) {
-        return false;
-      }
-
-      await this.instance.setFormFieldValues([
-        {
-          name: issue.formFieldName,
-          value: issue.expectedValue,
-        },
-      ]);
-
-      return true;
-    } catch (err) {
-      console.error("Form field fix failed:", err);
-      return false;
-    }
+  /**
+   * Legacy support: Apply fix using old Issue schema
+   * This maintains backward compatibility while migrating to new schema
+   */
+  async applyFix(issue: Issue): Promise<{ success: boolean; method?: string; error?: string }> {
+    // Convert Issue to Correction format
+    const correction = migrateIssueToCorrection(issue);
+    
+    // Use new correction flow
+    const result = await this.applyCorrection(correction);
+    
+    return {
+      success: result.success,
+      method: result.method,
+      error: result.error,
+    };
   }
+}
 
-  private async tryContentEditFix(issue: Issue): Promise<boolean> {
-    if (!issue.foundValue || !issue.expectedValue) {
-      return false;
-    }
-
-    try {
-      const session = await this.instance.beginContentEditingSession();
-      const textBlocks = await session.getTextBlocks(issue.pageIndex);
-
-      const targetBlock = textBlocks.find((block: any) => {
-        const blockRect = block.boundingBox;
-        const issueRect = issue.rect;
-
-        const overlaps =
-          blockRect.left < issueRect.left + issueRect.width &&
-          blockRect.left + blockRect.width > issueRect.left &&
-          blockRect.top < issueRect.top + issueRect.height &&
-          blockRect.top + blockRect.height > issueRect.top;
-
-        return overlaps && block.text.includes(issue.foundValue);
-      });
-
-      if (!targetBlock) {
-        await session.cancel();
-        return false;
-      }
-
-      const updatedText = targetBlock.text.replace(issue.foundValue, issue.expectedValue);
-      await session.updateTextBlocks([
-        {
-          id: targetBlock.id,
-          text: updatedText,
-        },
-      ]);
-
-      await session.commit();
-      return true;
-    } catch (err) {
-      console.error("Content edit fix failed:", err);
-      return false;
-    }
-  }
-
-  private async tryRedactionOverlay(issue: Issue): Promise<boolean> {
-    if (!issue.expectedValue) {
-      return false;
-    }
-
-    try {
-      const Annotations = await this.instance.Annotations;
-      const Geometry = await this.instance.Geometry;
-
-      const redaction = new Annotations.RedactionAnnotation({
+/**
+ * Migration helper: Convert old Issue schema to new Correction schema
+ */
+export function migrateIssueToCorrection(issue: Issue): Correction {
+  return {
+    id: issue.issueId,
+    type: mapIssueType(issue.type),
+    severity: mapSeverity(issue.severity),
+    location: {
+      bbox: {
         pageIndex: issue.pageIndex,
-        boundingBox: new Geometry.Rect(issue.rect),
-        overlayText: issue.expectedValue,
-      });
+        left: issue.rect.left,
+        top: issue.rect.top,
+        width: issue.rect.width,
+        height: issue.rect.height,
+      },
+    },
+    found_value: issue.foundValue || "",
+    expected_value: issue.expectedValue || "",
+    confidence: issue.confidence,
+    requires_human_review: issue.suggestedFix.requiresApproval,
+    recommended_action:
+      issue.suggestedFix.strategy === "auto"
+        ? "auto_correct"
+        : "flag_for_review",
+    evidence: {
+      reasoning: issue.label || "Detected by analysis",
+    },
+    form_field_name: issue.formFieldName,
+    status: mapStatus(issue.status),
+  };
+}
 
-      await this.instance.create(redaction);
-      return true;
-    } catch (err) {
-      console.error("Redaction overlay failed:", err);
-      return false;
-    }
-  }
+/**
+ * Map old issue type string to new CorrectionType
+ */
+function mapIssueType(type: string): Correction["type"] {
+  const mapping: Record<string, Correction["type"]> = {
+    typo: "typo",
+    date: "date_error",
+    phone: "phone_format",
+    name: "name_mismatch",
+    address: "address_error",
+    numeric: "numeric_error",
+    missing: "missing_value",
+    format: "format_standardization",
+    inconsistency: "data_inconsistency",
+  };
+
+  const normalized = type.toLowerCase().replace(/[^a-z]/g, "");
+  return mapping[normalized] || "typo";
+}
+
+/**
+ * Map old severity to new Severity
+ */
+function mapSeverity(
+  severity: Issue["severity"]
+): Correction["severity"] {
+  const mapping: Record<string, Correction["severity"]> = {
+    critical: "critical",
+    high: "warning",
+    medium: "warning",
+    low: "info",
+  };
+
+  return mapping[severity] || "info";
+}
+
+/**
+ * Map old status to new status
+ */
+function mapStatus(
+  status?: Issue["status"]
+): Correction["status"] {
+  if (!status) return "pending";
+
+  const mapping: Record<string, Correction["status"]> = {
+    OPEN: "pending",
+    APPLIED: "applied",
+    MANUAL: "manual",
+    REJECTED: "rejected",
+  };
+
+  return mapping[status] || "pending";
 }

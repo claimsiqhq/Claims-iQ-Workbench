@@ -123,3 +123,6 @@ export type SessionData = z.infer<typeof SessionDataSchema>;
 export type AuditLog = z.infer<typeof AuditLogSchema>;
 export type ExtractedClaimInfo = z.infer<typeof ExtractedClaimInfoSchema>;
 export type IssueStatus = "OPEN" | "APPLIED" | "MANUAL" | "REJECTED";
+
+// Re-export canonical schemas for convenience
+export * from "./schemas";
