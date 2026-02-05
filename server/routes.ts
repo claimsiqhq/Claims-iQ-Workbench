@@ -48,12 +48,19 @@ const upload = multer({
   dest: STORAGE_DIR,
   limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    // Check MIME type
-    if (file.mimetype !== "application/pdf") {
-      return cb(new Error("Only PDF files are allowed"));
+    const ext = path.extname(file.originalname).toLowerCase();
+    
+    if (file.fieldname === "issues") {
+      if (ext !== ".json" && file.mimetype !== "application/json") {
+        return cb(new Error("Issues file must be JSON"));
+      }
+    } else if (file.fieldname === "file") {
+      const allowedMimes = ["application/pdf", "application/x-pdf", "application/octet-stream"];
+      if (!allowedMimes.includes(file.mimetype) && ext !== ".pdf") {
+        return cb(new Error("Only PDF files are allowed"));
+      }
     }
     
-    // Sanitize filename
     const sanitized = path.basename(file.originalname).replace(/[^a-zA-Z0-9.-]/g, "_");
     file.originalname = sanitized;
     
