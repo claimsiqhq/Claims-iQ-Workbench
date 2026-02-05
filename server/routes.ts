@@ -421,23 +421,18 @@ export async function registerRoutes(
       
       if (isSupabaseConfigured()) {
         const cacheKeyStr = cacheKey("claims", req.userId, pagination.page, pagination.limit);
-        const claims = await withCache(cacheKeyStr, async () => {
-          return await storage.getClaims(req.userId);
+        const result = await withCache(cacheKeyStr, async () => {
+          return await storage.getClaimsPaginated(req.userId, pagination);
         }, 30000);
         
-        const paginatedData = claims.slice(
-          ((pagination.page || 1) - 1) * (pagination.limit || 50),
-          (pagination.page || 1) * (pagination.limit || 50)
-        );
-        
-        return sendSuccess(res, createPaginatedResponse(paginatedData, claims.length, pagination));
+        return sendSuccess(res, createPaginatedResponse(result.data, result.total, pagination));
       }
       
       const index = readIndex();
-      const paginatedData = index.claims.slice(
-        ((pagination.page || 1) - 1) * (pagination.limit || 50),
-        (pagination.page || 1) * (pagination.limit || 50)
-      );
+      const page = pagination.page || 1;
+      const limit = pagination.limit || 50;
+      const offset = (page - 1) * limit;
+      const paginatedData = index.claims.slice(offset, offset + limit);
       
       sendSuccess(res, createPaginatedResponse(paginatedData, index.claims.length, pagination));
     } catch (error) {
@@ -919,6 +914,9 @@ export async function registerRoutes(
       };
       
       const created = await storage.createCorrection(correction, req.userId);
+      
+      cache.deletePattern(`corrections:${sanitizedDocId}`);
+      
       sendSuccess(res, created, 201);
     } catch (error) {
       console.error("Error creating correction:", error);
@@ -942,8 +940,13 @@ export async function registerRoutes(
         return sendError(res, 404, "NOT_FOUND", "Document not found");
       }
 
-      const corrections = await storage.getCorrections(sanitizedDocId, req.userId);
-      sendSuccess(res, corrections);
+      const pagination = parsePaginationParams(req.query);
+      const cacheKeyStr = cacheKey("corrections", sanitizedDocId, pagination.page, pagination.limit);
+      const result = await withCache(cacheKeyStr, async () => {
+        return await storage.getCorrectionsPaginated(sanitizedDocId, req.userId, pagination);
+      }, 30000);
+      
+      sendSuccess(res, createPaginatedResponse(result.data, result.total, pagination));
     } catch (error) {
       console.error("Error fetching corrections:", error);
       sendError(res, 500, "FETCH_ERROR", "Failed to fetch corrections");
@@ -963,6 +966,9 @@ export async function registerRoutes(
       }
       
       await storage.updateCorrectionStatus(sanitizedId, status, req.userId, method, req.userId);
+      
+      cache.deletePattern(`corrections:`);
+      
       sendSuccess(res, { success: true });
     } catch (error) {
       console.error("Error updating correction status:", error);
@@ -1000,6 +1006,8 @@ export async function registerRoutes(
           .eq('id', created.id);
       }
       
+      cache.deletePattern(`annotations:${sanitizedDocId}`);
+      
       sendSuccess(res, { ...created, document_id: sanitizedDocId }, 201);
     } catch (error) {
       console.error("Error creating annotation:", error);
@@ -1023,8 +1031,13 @@ export async function registerRoutes(
         return sendError(res, 404, "NOT_FOUND", "Document not found");
       }
 
-      const annotations = await storage.getAnnotations(sanitizedDocId, req.userId);
-      sendSuccess(res, annotations);
+      const pagination = parsePaginationParams(req.query);
+      const cacheKeyStr = cacheKey("annotations", sanitizedDocId, pagination.page, pagination.limit);
+      const result = await withCache(cacheKeyStr, async () => {
+        return await storage.getAnnotationsPaginated(sanitizedDocId, req.userId, pagination);
+      }, 30000);
+      
+      sendSuccess(res, createPaginatedResponse(result.data, result.total, pagination));
     } catch (error) {
       console.error("Error fetching annotations:", error);
       sendError(res, 500, "FETCH_ERROR", "Failed to fetch annotations");
@@ -1039,6 +1052,9 @@ export async function registerRoutes(
       }
 
       await storage.deleteAnnotation(sanitizedId, req.userId);
+      
+      cache.deletePattern(`annotations:`);
+      
       sendSuccess(res, { success: true });
     } catch (error) {
       console.error("Error deleting annotation:", error);
@@ -1055,6 +1071,9 @@ export async function registerRoutes(
 
       const updates = req.body;
       const updated = await storage.updateAnnotation(sanitizedId, updates, req.userId);
+      
+      cache.deletePattern(`annotations:`);
+      
       sendSuccess(res, updated);
     } catch (error) {
       console.error("Error updating annotation:", error);
@@ -1075,8 +1094,13 @@ export async function registerRoutes(
         return sendError(res, 404, "NOT_FOUND", "Claim not found");
       }
 
-      const validations = await storage.getCrossDocumentValidations(sanitizedClaimId, req.userId);
-      sendSuccess(res, validations);
+      const pagination = parsePaginationParams(req.query);
+      const cacheKeyStr = cacheKey("validations", sanitizedClaimId, pagination.page, pagination.limit);
+      const result = await withCache(cacheKeyStr, async () => {
+        return await storage.getCrossDocValidationsPaginated(sanitizedClaimId, req.userId, pagination);
+      }, 30000);
+      
+      sendSuccess(res, createPaginatedResponse(result.data, result.total, pagination));
     } catch (error) {
       console.error("Error fetching validations:", error);
       sendError(res, 500, "FETCH_ERROR", "Failed to fetch cross-document validations");
@@ -1096,8 +1120,13 @@ export async function registerRoutes(
         return sendError(res, 404, "NOT_FOUND", "Claim not found");
       }
 
-      const validations = await storage.getCrossDocumentValidations(sanitizedClaimId, req.userId);
-      sendSuccess(res, validations);
+      const pagination = parsePaginationParams(req.query);
+      const cacheKeyStr = cacheKey("cross-validations", sanitizedClaimId, pagination.page, pagination.limit);
+      const result = await withCache(cacheKeyStr, async () => {
+        return await storage.getCrossDocValidationsPaginated(sanitizedClaimId, req.userId, pagination);
+      }, 30000);
+      
+      sendSuccess(res, createPaginatedResponse(result.data, result.total, pagination));
     } catch (error) {
       console.error("Error fetching validations:", error);
       sendError(res, 500, "FETCH_ERROR", "Failed to fetch cross-document validations");
@@ -1142,6 +1171,9 @@ export async function registerRoutes(
       }
 
       await storage.updateCrossDocumentValidationStatus(sanitizedId, status, resolved_value, req.userId);
+      
+      cache.deletePattern(`validations:|cross-validations:`);
+      
       sendSuccess(res, { success: true });
     } catch (error) {
       console.error("Error updating validation status:", error);
@@ -1279,6 +1311,8 @@ export async function registerRoutes(
           ...validation,
         }, req.userId);
       }
+      
+      cache.deletePattern(`validations:|cross-validations:`);
 
       sendSuccess(res, { validations, count: validations.length });
     } catch (error) {
@@ -1360,6 +1394,8 @@ export async function registerRoutes(
           ...validation,
         }, req.userId);
       }
+      
+      cache.deletePattern(`validations:|cross-validations:`);
 
       sendSuccess(res, { validations, count: validations.length });
     } catch (error) {

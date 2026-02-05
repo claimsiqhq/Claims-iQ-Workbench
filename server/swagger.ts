@@ -38,10 +38,10 @@ const options: swaggerJsdoc.Options = {
           tags: ["Claims"],
           security: [{ bearerAuth: [] }],
           parameters: [
-            { name: "page", in: "query", schema: { type: "integer" }, description: "Page number" },
-            { name: "limit", in: "query", schema: { type: "integer" }, description: "Items per page" },
+            { name: "page", in: "query", schema: { type: "integer", default: 1 }, description: "Page number" },
+            { name: "limit", in: "query", schema: { type: "integer", default: 50 }, description: "Items per page" },
           ],
-          responses: { "200": { description: "Paginated list of claims" } },
+          responses: { "200": { description: "Paginated list of claims", content: { "application/json": { schema: { $ref: "#/components/schemas/PaginatedResponse" } } } } },
         },
       },
       "/claims/{claimId}": {
@@ -65,8 +65,12 @@ const options: swaggerJsdoc.Options = {
           summary: "Get corrections for a document",
           tags: ["Corrections"],
           security: [{ bearerAuth: [] }],
-          parameters: [{ name: "documentId", in: "path", required: true, schema: { type: "string" } }],
-          responses: { "200": { description: "List of corrections" } },
+          parameters: [
+            { name: "documentId", in: "path", required: true, schema: { type: "string" } },
+            { name: "page", in: "query", schema: { type: "integer", default: 1 }, description: "Page number" },
+            { name: "limit", in: "query", schema: { type: "integer", default: 50 }, description: "Items per page" },
+          ],
+          responses: { "200": { description: "Paginated list of corrections", content: { "application/json": { schema: { $ref: "#/components/schemas/PaginatedResponse" } } } } },
         },
         post: {
           summary: "Create a correction",
@@ -91,8 +95,12 @@ const options: swaggerJsdoc.Options = {
           summary: "Get annotations for a document",
           tags: ["Annotations"],
           security: [{ bearerAuth: [] }],
-          parameters: [{ name: "documentId", in: "path", required: true, schema: { type: "string" } }],
-          responses: { "200": { description: "List of annotations" } },
+          parameters: [
+            { name: "documentId", in: "path", required: true, schema: { type: "string" } },
+            { name: "page", in: "query", schema: { type: "integer", default: 1 }, description: "Page number" },
+            { name: "limit", in: "query", schema: { type: "integer", default: 50 }, description: "Items per page" },
+          ],
+          responses: { "200": { description: "Paginated list of annotations", content: { "application/json": { schema: { $ref: "#/components/schemas/PaginatedResponse" } } } } },
         },
         post: {
           summary: "Create an annotation",
@@ -124,8 +132,12 @@ const options: swaggerJsdoc.Options = {
           summary: "Get cross-document validations for a claim",
           tags: ["Validations"],
           security: [{ bearerAuth: [] }],
-          parameters: [{ name: "claimId", in: "path", required: true, schema: { type: "string" } }],
-          responses: { "200": { description: "List of validations" } },
+          parameters: [
+            { name: "claimId", in: "path", required: true, schema: { type: "string" } },
+            { name: "page", in: "query", schema: { type: "integer", default: 1 }, description: "Page number" },
+            { name: "limit", in: "query", schema: { type: "integer", default: 50 }, description: "Items per page" },
+          ],
+          responses: { "200": { description: "Paginated list of validations", content: { "application/json": { schema: { $ref: "#/components/schemas/PaginatedResponse" } } } } },
         },
       },
     },
@@ -161,6 +173,14 @@ const options: swaggerJsdoc.Options = {
             hasNext: { type: "boolean" },
             hasPrev: { type: "boolean" },
           },
+        },
+        PaginatedResponse: {
+          type: "object",
+          properties: {
+            data: { type: "array", items: { type: "object" } },
+            pagination: { $ref: "#/components/schemas/Pagination" },
+          },
+          required: ["data", "pagination"],
         },
         Claim: {
           type: "object",

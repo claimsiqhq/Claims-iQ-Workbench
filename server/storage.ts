@@ -2,12 +2,15 @@ import { type User, type InsertUser, type Claim, type Document, type IssueBundle
 import type { Correction, Annotation, CrossDocumentValidation, DocumentCorrectionPayload } from "@shared/schemas";
 import { randomUUID } from "crypto";
 import { supabaseAdmin, isSupabaseConfigured } from "./supabase";
+import type { PaginationParams, PaginatedResult } from "@shared/types/pagination";
+import { DEFAULT_PAGE, DEFAULT_LIMIT } from "@shared/types/pagination";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   getClaims(userId?: string): Promise<Claim[]>;
+  getClaimsPaginated(userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<Claim>>;
   getClaimById(claimId: string): Promise<Claim | null>;
   createClaim(claim: Partial<Claim> & { claimId: string }, userId?: string): Promise<Claim>;
   updateClaim(claimId: string, updates: Partial<Claim>): Promise<Claim | null>;
@@ -26,16 +29,19 @@ export interface IStorage {
   
   // Canonical schema methods
   getCorrections(documentId: string, userId?: string): Promise<Correction[]>;
+  getCorrectionsPaginated(documentId: string, userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<Correction>>;
   getCorrectionsByClaimId(claimId: string, userId?: string): Promise<Correction[]>;
   createCorrection(correction: Correction, userId?: string): Promise<Correction>;
   saveCorrection(correction: Correction, userId?: string): Promise<void>;
   updateCorrectionStatus(correctionId: string, status: Correction["status"], appliedBy?: string, method?: string, userId?: string): Promise<void>;
   getAnnotations(documentId: string, userId?: string): Promise<Annotation[]>;
+  getAnnotationsPaginated(documentId: string, userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<Annotation>>;
   createAnnotation(annotation: Annotation, userId?: string): Promise<Annotation>;
   saveAnnotation(annotation: Annotation, userId?: string): Promise<void>;
   updateAnnotation(id: string, updates: Partial<Annotation>, userId?: string): Promise<Annotation>;
   deleteAnnotation(annotationId: string, userId?: string): Promise<void>;
   getCrossDocValidations(claimId: string, userId?: string): Promise<CrossDocumentValidation[]>;
+  getCrossDocValidationsPaginated(claimId: string, userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<CrossDocumentValidation>>;
   getCrossDocumentValidations(claimId: string, userId?: string): Promise<CrossDocumentValidation[]>;
   createCrossDocValidation(validation: CrossDocumentValidation, userId?: string): Promise<CrossDocumentValidation>;
   saveCrossDocumentValidation(validation: CrossDocumentValidation, userId?: string): Promise<void>;
@@ -140,6 +146,47 @@ export class SupabaseStorage implements IStorage {
       claimAmount: row.claim_amount,
       adjusterName: row.adjuster_name,
     }));
+  }
+
+  async getClaimsPaginated(userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<Claim>> {
+    if (!supabaseAdmin) return { data: [], total: 0 };
+    
+    const page = pagination?.page || DEFAULT_PAGE;
+    const limit = pagination?.limit || DEFAULT_LIMIT;
+    const offset = (page - 1) * limit;
+    
+    let countQuery = supabaseAdmin.from('claims').select('*', { count: 'exact', head: true });
+    let dataQuery = supabaseAdmin.from('claims').select('*');
+    
+    if (userId) {
+      countQuery = countQuery.eq('user_id', userId);
+      dataQuery = dataQuery.eq('user_id', userId);
+    }
+    
+    const [countResult, dataResult] = await Promise.all([
+      countQuery,
+      dataQuery
+        .order(pagination?.sortBy || 'created_at', { ascending: pagination?.sortOrder === 'asc' })
+        .range(offset, offset + limit - 1)
+    ]);
+    
+    if (dataResult.error) {
+      console.error('Error fetching claims:', dataResult.error);
+      return { data: [], total: 0 };
+    }
+    
+    const claims = (dataResult.data || []).map(row => ({
+      claimId: row.claim_id,
+      claimNumber: row.claim_number,
+      policyNumber: row.policy_number,
+      status: row.status,
+      insuredName: row.insured_name,
+      dateOfLoss: row.date_of_loss,
+      claimAmount: row.claim_amount,
+      adjusterName: row.adjuster_name,
+    }));
+    
+    return { data: claims, total: countResult.count || 0 };
   }
 
   async getClaimById(claimId: string): Promise<Claim | null> {
@@ -524,6 +571,51 @@ export class SupabaseStorage implements IStorage {
     }));
   }
 
+  async getCorrectionsPaginated(documentId: string, userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<Correction>> {
+    if (!supabaseAdmin) return { data: [], total: 0 };
+    
+    const page = pagination?.page || DEFAULT_PAGE;
+    const limit = pagination?.limit || DEFAULT_LIMIT;
+    const offset = (page - 1) * limit;
+    
+    let countQuery = supabaseAdmin.from('corrections').select('*', { count: 'exact', head: true }).eq('document_id', documentId);
+    let dataQuery = supabaseAdmin.from('corrections').select('*').eq('document_id', documentId);
+    
+    if (userId) {
+      countQuery = countQuery.eq('user_id', userId);
+      dataQuery = dataQuery.eq('user_id', userId);
+    }
+    
+    const [countResult, dataResult] = await Promise.all([
+      countQuery,
+      dataQuery.order('created_at', { ascending: false }).range(offset, offset + limit - 1)
+    ]);
+    
+    if (dataResult.error) return { data: [], total: 0 };
+    
+    const corrections = (dataResult.data || []).map(row => ({
+      id: row.id,
+      claim_id: row.claim_id,
+      document_id: row.document_id,
+      type: row.type as Correction["type"],
+      severity: row.severity as Correction["severity"],
+      location: row.location,
+      found_value: row.found_value || "",
+      expected_value: row.expected_value || "",
+      confidence: row.confidence,
+      requires_human_review: row.requires_human_review,
+      recommended_action: row.recommended_action as Correction["recommended_action"],
+      evidence: row.evidence,
+      form_field_name: row.form_field_name,
+      status: row.status as Correction["status"],
+      applied_at: row.applied_at,
+      applied_by: row.applied_by,
+      applied_method: row.applied_method,
+    }));
+    
+    return { data: corrections, total: countResult.count || 0 };
+  }
+
   async getCorrectionsByClaimId(claimId: string, userId?: string): Promise<Correction[]> {
     if (!supabaseAdmin) return [];
     
@@ -705,6 +797,43 @@ export class SupabaseStorage implements IStorage {
     }));
   }
 
+  async getAnnotationsPaginated(documentId: string, userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<Annotation>> {
+    if (!supabaseAdmin) return { data: [], total: 0 };
+    
+    const page = pagination?.page || DEFAULT_PAGE;
+    const limit = pagination?.limit || DEFAULT_LIMIT;
+    const offset = (page - 1) * limit;
+    
+    let countQuery = supabaseAdmin.from('annotations').select('*', { count: 'exact', head: true }).eq('document_id', documentId);
+    let dataQuery = supabaseAdmin.from('annotations').select('*').eq('document_id', documentId);
+    
+    if (userId) {
+      countQuery = countQuery.eq('created_by', userId);
+      dataQuery = dataQuery.eq('created_by', userId);
+    }
+    
+    const [countResult, dataResult] = await Promise.all([
+      countQuery,
+      dataQuery.order('created_at', { ascending: false }).range(offset, offset + limit - 1)
+    ]);
+    
+    if (dataResult.error) return { data: [], total: 0 };
+    
+    const annotations = (dataResult.data || []).map(row => ({
+      id: row.id,
+      type: row.type as Annotation["type"],
+      location: row.location,
+      text: row.text,
+      color: row.color,
+      related_correction_id: row.related_correction_id,
+      related_validation_id: row.related_validation_id,
+      created_by: row.created_by,
+      created_at: row.created_at,
+    }));
+    
+    return { data: annotations, total: countResult.count || 0 };
+  }
+
   async createAnnotation(annotation: Annotation, userId?: string): Promise<Annotation> {
     if (!supabaseAdmin) throw new Error('Supabase not configured');
     
@@ -797,6 +926,45 @@ export class SupabaseStorage implements IStorage {
 
   async getCrossDocValidations(claimId: string, userId?: string): Promise<CrossDocumentValidation[]> {
     return this.getCrossDocumentValidations(claimId, userId);
+  }
+
+  async getCrossDocValidationsPaginated(claimId: string, userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<CrossDocumentValidation>> {
+    if (!supabaseAdmin) return { data: [], total: 0 };
+    
+    const page = pagination?.page || DEFAULT_PAGE;
+    const limit = pagination?.limit || DEFAULT_LIMIT;
+    const offset = (page - 1) * limit;
+    
+    let countQuery = supabaseAdmin.from('cross_document_validations').select('*', { count: 'exact', head: true }).eq('claim_id', claimId);
+    let dataQuery = supabaseAdmin.from('cross_document_validations').select('*').eq('claim_id', claimId);
+    
+    if (userId) {
+      countQuery = countQuery.eq('user_id', userId);
+      dataQuery = dataQuery.eq('user_id', userId);
+    }
+    
+    const [countResult, dataResult] = await Promise.all([
+      countQuery,
+      dataQuery.order('created_at', { ascending: false }).range(offset, offset + limit - 1)
+    ]);
+    
+    if (dataResult.error) return { data: [], total: 0 };
+    
+    const validations = (dataResult.data || []).map(row => ({
+      id: row.id,
+      field: row.field as CrossDocumentValidation["field"],
+      severity: row.severity as CrossDocumentValidation["severity"],
+      documents: row.documents,
+      expected_value: row.expected_value,
+      recommended_action: row.recommended_action as CrossDocumentValidation["recommended_action"],
+      reasoning: row.reasoning,
+      status: row.status as CrossDocumentValidation["status"],
+      resolved_value: row.resolved_value,
+      resolved_by: row.resolved_by,
+      resolved_at: row.resolved_at,
+    }));
+    
+    return { data: validations, total: countResult.count || 0 };
   }
 
   async getCrossDocumentValidations(claimId: string, userId?: string): Promise<CrossDocumentValidation[]> {
@@ -1009,6 +1177,14 @@ export class MemStorage implements IStorage {
     return Array.from(this.claims.values());
   }
 
+  async getClaimsPaginated(userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<Claim>> {
+    const allClaims = Array.from(this.claims.values());
+    const page = pagination?.page || DEFAULT_PAGE;
+    const limit = pagination?.limit || DEFAULT_LIMIT;
+    const offset = (page - 1) * limit;
+    return { data: allClaims.slice(offset, offset + limit), total: allClaims.length };
+  }
+
   async getClaimById(claimId: string): Promise<Claim | null> {
     return this.claims.get(claimId) || null;
   }
@@ -1127,6 +1303,14 @@ export class MemStorage implements IStorage {
     );
   }
 
+  async getCorrectionsPaginated(documentId: string, userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<Correction>> {
+    const all = Array.from(this.corrections.values()).filter(c => c.evidence.source_document === documentId);
+    const page = pagination?.page || DEFAULT_PAGE;
+    const limit = pagination?.limit || DEFAULT_LIMIT;
+    const offset = (page - 1) * limit;
+    return { data: all.slice(offset, offset + limit), total: all.length };
+  }
+
   async getCorrectionsByClaimId(claimId: string, userId?: string): Promise<Correction[]> {
     return Array.from(this.corrections.values()).filter(
       c => c.evidence.source_document && this.documents.get(c.evidence.source_document)?.claimId === claimId
@@ -1169,6 +1353,14 @@ export class MemStorage implements IStorage {
     );
   }
 
+  async getAnnotationsPaginated(documentId: string, userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<Annotation>> {
+    const all = Array.from(this.annotations.values());
+    const page = pagination?.page || DEFAULT_PAGE;
+    const limit = pagination?.limit || DEFAULT_LIMIT;
+    const offset = (page - 1) * limit;
+    return { data: all.slice(offset, offset + limit), total: all.length };
+  }
+
   async createAnnotation(annotation: Annotation, userId?: string): Promise<Annotation> {
     const created = {
       ...annotation,
@@ -1203,6 +1395,14 @@ export class MemStorage implements IStorage {
 
   async getCrossDocValidations(claimId: string, userId?: string): Promise<CrossDocumentValidation[]> {
     return this.getCrossDocumentValidations(claimId, userId);
+  }
+
+  async getCrossDocValidationsPaginated(claimId: string, userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<CrossDocumentValidation>> {
+    const all = await this.getCrossDocumentValidations(claimId, userId);
+    const page = pagination?.page || DEFAULT_PAGE;
+    const limit = pagination?.limit || DEFAULT_LIMIT;
+    const offset = (page - 1) * limit;
+    return { data: all.slice(offset, offset + limit), total: all.length };
   }
 
   async getCrossDocumentValidations(claimId: string, userId?: string): Promise<CrossDocumentValidation[]> {

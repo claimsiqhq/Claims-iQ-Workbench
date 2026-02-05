@@ -17,6 +17,11 @@ export interface PaginatedResponse<T> {
   };
 }
 
+export interface PaginatedResult<T> {
+  data: T[];
+  total: number;
+}
+
 export const DEFAULT_PAGE = 1;
 export const DEFAULT_LIMIT = 50;
 export const MAX_LIMIT = 100;

@@ -38,8 +38,9 @@ class InMemoryCache {
   deletePattern(pattern: string): number {
     let deleted = 0;
     const regex = new RegExp(pattern);
+    const keys = Array.from(this.cache.keys());
     
-    for (const key of this.cache.keys()) {
+    for (const key of keys) {
       if (regex.test(key)) {
         this.cache.delete(key);
         deleted++;
@@ -55,7 +56,8 @@ class InMemoryCache {
 
   private cleanup(): void {
     const now = Date.now();
-    for (const [key, entry] of this.cache.entries()) {
+    const entries = Array.from(this.cache.entries());
+    for (const [key, entry] of entries) {
       if (now > entry.expiresAt) {
         this.cache.delete(key);
       }
