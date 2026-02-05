@@ -95,8 +95,21 @@ export const api = {
     const res = await authenticatedFetch(`${API_BASE}/api/claims`);
     const data = await res.json();
     // Handle paginated response: { data: { data: [], pagination: {...} } }
+    // Or direct array: { data: [] }
     const responseData = data.data || data;
-    return Array.isArray(responseData) ? responseData : (responseData.data || []);
+    
+    // If it's already an array, return it
+    if (Array.isArray(responseData)) {
+      return responseData;
+    }
+    
+    // If it's a paginated response, extract the data array
+    if (responseData && typeof responseData === 'object' && 'data' in responseData) {
+      return Array.isArray(responseData.data) ? responseData.data : [];
+    }
+    
+    // Fallback to empty array
+    return [];
   },
 
   async getDocuments(claimId: string): Promise<Document[]> {

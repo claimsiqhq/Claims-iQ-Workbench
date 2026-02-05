@@ -646,6 +646,14 @@ export async function registerRoutes(
         claimId,
         documentId,
         extractedInfo,
+        ...(correctionPayloadResult ? {
+          correctionPayload: {
+            correctionJobId: correctionPayloadResult.correctionJobId,
+            summary: correctionPayloadResult.summary,
+            documentsCount: correctionPayloadResult.documents.length,
+            crossDocValidationsCount: correctionPayloadResult.crossDocumentValidations.length,
+          },
+        } : {}),
       }, 201);
     } catch (error) {
       console.error("Upload error:", error);
