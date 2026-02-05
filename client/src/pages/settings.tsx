@@ -42,21 +42,21 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-background font-sans">
-      <header className="border-b border-[#E3DFE8] bg-[#342A4F] text-white h-16 flex items-center px-4 gap-4">
+      <header className="border-b border-[#E3DFE8] bg-[#342A4F] text-white h-14 sm:h-16 flex items-center px-3 sm:px-4 gap-3 sm:gap-4">
         <Button
           variant="ghost"
           size="sm"
-          className="text-white hover:bg-white/10"
+          className="text-white hover:bg-white/10 h-8 sm:h-9 px-2 sm:px-3"
           onClick={() => setLocation("/")}
           data-testid="button-back"
         >
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          Back
+          <ArrowLeft className="h-4 w-4 sm:mr-1" />
+          <span className="hidden sm:inline">Back</span>
         </Button>
-        <span className="font-display font-semibold text-lg">Settings</span>
+        <span className="font-display font-semibold text-base sm:text-lg">Settings</span>
       </header>
 
-      <main className="max-w-xl mx-auto p-6 space-y-6">
+      <main className="max-w-xl mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
         <Card className="border-2 border-[#E3DFE8] shadow-sm">
           <CardHeader>
             <CardTitle className="font-display flex items-center gap-2">

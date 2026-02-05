@@ -950,7 +950,10 @@ function Workbench() {
                   variant="outline"
                   size="icon"
                   className="h-9 w-9 shrink-0 relative"
-                  onClick={() => setShowAnnotationPanel(!showAnnotationPanel)}
+                  onClick={() => {
+                    if (!showAnnotationPanel) setShowValidationPanel(false);
+                    setShowAnnotationPanel(!showAnnotationPanel);
+                  }}
                   data-testid="button-annotations"
                   aria-label="Annotations"
                 >
@@ -969,7 +972,10 @@ function Workbench() {
                   variant="outline"
                   size="icon"
                   className="h-9 w-9 shrink-0 relative"
-                  onClick={() => setShowValidationPanel(!showValidationPanel)}
+                  onClick={() => {
+                    if (!showValidationPanel) setShowAnnotationPanel(false);
+                    setShowValidationPanel(!showValidationPanel);
+                  }}
                   data-testid="button-cross-doc-validation"
                   aria-label="Cross-Document Validation"
                 >
@@ -1376,13 +1382,13 @@ function Workbench() {
                 </DialogContent>
               </Dialog>
               
-              <Button onClick={handleSave} variant="outline" disabled={!instance} data-testid="button-save" className="h-10 gap-2">
+              <Button onClick={handleSave} variant="outline" disabled={!instance} data-testid="button-save" className="h-9 sm:h-10 gap-1 sm:gap-2 px-2 sm:px-3">
                 <Save className="h-4 w-4" />
-                Save
+                <span className="hidden sm:inline">Save</span>
               </Button>
-              <Button onClick={handleDownload} variant="outline" disabled={!instance} data-testid="button-download" className="h-10 gap-2">
+              <Button onClick={handleDownload} variant="outline" disabled={!instance} data-testid="button-download" className="h-9 sm:h-10 gap-1 sm:gap-2 px-2 sm:px-3">
                 <Download className="h-4 w-4" />
-                Download
+                <span className="hidden sm:inline">Download</span>
               </Button>
             </div>
           </div>
@@ -1390,12 +1396,12 @@ function Workbench() {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden bg-[#F0EDF4]">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden bg-[#F0EDF4]">
         {/* Issues Sidebar */}
-        <aside className="w-[420px] border-r border-[#E3DFE8] bg-white flex flex-col shadow-sm">
-          <div className="p-6 border-b border-[#E3DFE8] bg-[#F0E6FA]/30">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="font-display font-bold text-[#342A4F] text-lg">Issues</h2>
+        <aside className="w-full lg:w-[420px] border-b lg:border-b-0 lg:border-r border-[#E3DFE8] bg-white flex flex-col shadow-sm max-h-[40vh] lg:max-h-none">
+          <div className="p-4 lg:p-6 border-b border-[#E3DFE8] bg-[#F0E6FA]/30">
+            <div className="flex items-center justify-between mb-3 lg:mb-5">
+              <h2 className="font-display font-bold text-[#342A4F] text-base lg:text-lg">Issues</h2>
               {issueBundle && (
                 <Badge variant="secondary" className="text-sm px-2.5 py-1">
                   {filteredIssues.length} of {issueCounts.all}
@@ -1421,7 +1427,7 @@ function Workbench() {
           </div>
 
           <ScrollArea className="flex-1">
-            <div className="p-6 space-y-4">
+            <div className="p-4 lg:p-6 space-y-3 lg:space-y-4">
               {!isDocumentLoaded ? (
                 <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
                   <div className="p-5 rounded-full bg-muted mb-5">
@@ -1598,14 +1604,14 @@ function Workbench() {
           )}
           
           {!isDocumentLoaded ? (
-            <div className="h-full flex items-center justify-center p-12">
-              <div className="text-center space-y-6 max-w-lg">
-                <div className="p-8 rounded-full bg-muted mx-auto w-fit">
-                  <FileText className="h-16 w-16 text-muted-foreground" />
+            <div className="h-full flex items-center justify-center p-6 lg:p-12">
+              <div className="text-center space-y-4 lg:space-y-6 max-w-lg">
+                <div className="p-6 lg:p-8 rounded-full bg-muted mx-auto w-fit">
+                  <FileText className="h-12 w-12 lg:h-16 lg:w-16 text-muted-foreground" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-semibold text-foreground mb-3">Ready to begin</h3>
-                  <p className="text-base text-muted-foreground leading-relaxed">
+                  <h3 className="text-lg lg:text-xl font-semibold text-foreground mb-2 lg:mb-3">Ready to begin</h3>
+                  <p className="text-sm lg:text-base text-muted-foreground leading-relaxed">
                     Select a claim and document from the header, then click Load to start reviewing and correcting issues.
                   </p>
                 </div>
@@ -1621,29 +1627,36 @@ function Workbench() {
               
               {/* Annotation Panel (slide-out) */}
               {showAnnotationPanel && isDocumentLoaded && selectedDocumentId && (
-                <div className="w-[380px] border-l border-[#E3DFE8] bg-white flex flex-col shadow-lg">
-                  <div className="p-4 border-b border-[#E3DFE8] flex items-center justify-between">
-                    <h3 className="font-display font-semibold text-[#342A4F]">Annotations</h3>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => setShowAnnotationPanel(false)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
+                <>
+                  <div 
+                    className="fixed inset-0 bg-black/30 z-10 sm:hidden" 
+                    onClick={() => setShowAnnotationPanel(false)}
+                    aria-hidden="true"
+                  />
+                  <div className="w-full sm:w-[320px] lg:w-[380px] fixed sm:absolute sm:relative inset-y-0 right-0 sm:top-0 sm:h-full border-l border-[#E3DFE8] bg-white flex flex-col shadow-lg z-20">
+                    <div className="p-4 border-b border-[#E3DFE8] flex items-center justify-between">
+                      <h3 className="font-display font-semibold text-[#342A4F]">Annotations</h3>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setShowAnnotationPanel(false)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <div className="flex-1 overflow-hidden">
+                      <AnnotationPanel
+                        adapter={pdfAdapter}
+                        documentId={selectedDocumentId}
+                        annotations={annotations}
+                        onCreateAnnotation={handleCreateAnnotation}
+                        onDeleteAnnotation={handleDeleteAnnotation}
+                        currentPage={currentPage}
+                      />
+                    </div>
                   </div>
-                  <div className="flex-1 overflow-hidden">
-                    <AnnotationPanel
-                      adapter={pdfAdapter}
-                      documentId={selectedDocumentId}
-                      annotations={annotations}
-                      onCreateAnnotation={handleCreateAnnotation}
-                      onDeleteAnnotation={handleDeleteAnnotation}
-                      currentPage={currentPage}
-                    />
-                  </div>
-                </div>
+                </>
               )}
             </div>
           )}
@@ -1651,39 +1664,46 @@ function Workbench() {
 
         {/* Cross-Document Validation Panel (slide-out from right) */}
         {showValidationPanel && selectedClaimId && (
-          <div className="w-[420px] border-l border-[#E3DFE8] bg-white flex flex-col shadow-lg">
-            <div className="p-4 border-b border-[#E3DFE8] flex items-center justify-between">
-              <h3 className="font-display font-semibold text-[#342A4F]">Cross-Document Validation</h3>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={handleTriggerValidation}
-                >
-                  <Search className="h-3.5 w-3.5 mr-1" />
-                  Validate
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setShowValidationPanel(false)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
+          <>
+            <div 
+              className="fixed inset-0 bg-black/30 z-10 sm:hidden" 
+              onClick={() => setShowValidationPanel(false)}
+              aria-hidden="true"
+            />
+            <div className="w-full sm:w-[320px] lg:w-[420px] fixed sm:absolute sm:relative inset-y-0 right-0 sm:top-0 sm:h-full border-l border-[#E3DFE8] bg-white flex flex-col shadow-lg z-20">
+              <div className="p-4 border-b border-[#E3DFE8] flex items-center justify-between">
+                <h3 className="font-display font-semibold text-[#342A4F]">Cross-Document Validation</h3>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={handleTriggerValidation}
+                  >
+                    <Search className="h-3.5 w-3.5 mr-1" />
+                    Validate
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setShowValidationPanel(false)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <CrossDocumentValidationPanel
+                  claimId={selectedClaimId}
+                  validations={crossDocValidations}
+                  onResolve={handleResolveValidation}
+                  onIgnore={handleIgnoreValidation}
+                  onEscalate={handleEscalateValidation}
+                />
               </div>
             </div>
-            <div className="flex-1 overflow-hidden">
-              <CrossDocumentValidationPanel
-                claimId={selectedClaimId}
-                validations={crossDocValidations}
-                onResolve={handleResolveValidation}
-                onIgnore={handleIgnoreValidation}
-                onEscalate={handleEscalateValidation}
-              />
-            </div>
-          </div>
+          </>
         )}
       </div>
     </div>

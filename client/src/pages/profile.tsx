@@ -109,32 +109,32 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-background font-sans">
-      <header className="border-b border-[#E3DFE8] bg-[#342A4F] text-white h-16 flex items-center px-4 gap-4">
+      <header className="border-b border-[#E3DFE8] bg-[#342A4F] text-white h-14 sm:h-16 flex items-center px-3 sm:px-4 gap-3 sm:gap-4">
         <Button
           variant="ghost"
           size="sm"
-          className="text-white hover:bg-white/10"
+          className="text-white hover:bg-white/10 h-8 sm:h-9 px-2 sm:px-3"
           onClick={() => setLocation("/")}
           data-testid="button-back"
         >
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          Back
+          <ArrowLeft className="h-4 w-4 sm:mr-1" />
+          <span className="hidden sm:inline">Back</span>
         </Button>
-        <span className="font-display font-semibold text-lg">Profile</span>
+        <span className="font-display font-semibold text-base sm:text-lg">Profile</span>
       </header>
 
-      <main className="max-w-xl mx-auto p-6">
+      <main className="max-w-xl mx-auto p-4 sm:p-6">
         <Card className="border-2 border-[#E3DFE8] shadow-sm">
           <CardHeader className="pb-2">
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
               <div
-                className="h-16 w-16 rounded-full flex items-center justify-center text-xl font-display font-semibold text-primary-foreground bg-primary"
+                className="h-14 w-14 sm:h-16 sm:w-16 rounded-full flex items-center justify-center text-lg sm:text-xl font-display font-semibold text-primary-foreground bg-primary shrink-0"
                 data-testid="profile-avatar"
               >
                 {getInitials(user?.email ?? undefined, displayName)}
               </div>
-              <div className="flex-1">
-                <CardTitle className="font-display text-xl">
+              <div className="flex-1 min-w-0">
+                <CardTitle className="font-display text-lg sm:text-xl truncate">
                   {displayName || "Profile"}
                 </CardTitle>
                 <CardDescription>Your account details</CardDescription>
@@ -145,9 +145,10 @@ export default function ProfilePage() {
                   size="sm"
                   onClick={() => setIsEditing(true)}
                   data-testid="button-edit-profile"
+                  className="self-start sm:self-auto"
                 >
-                  <Pencil className="h-4 w-4 mr-1" />
-                  Edit
+                  <Pencil className="h-4 w-4 sm:mr-1" />
+                  <span className="hidden sm:inline">Edit</span>
                 </Button>
               )}
             </div>
