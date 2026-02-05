@@ -12,6 +12,16 @@ import { requestIdMiddleware, loggingMiddleware } from "./middleware/logging";
 import { parsePaginationParams, createPaginatedResponse, DEFAULT_LIMIT, DEFAULT_PAGE } from "@shared/types/pagination";
 import { performanceMiddleware, performanceMonitor } from "./monitoring";
 import { cache, cacheKey, withCache } from "./cache";
+import {
+  isClaimsIQPayload,
+  validateAgainstSchema,
+  adaptToIssueBundle,
+  adaptCorrectionPayload,
+  getActiveSchema,
+  getSchemaVersion,
+  getSchemaTitle,
+  saveActiveSchema,
+} from "./adapters/correction-payload-adapter";
 import jwt from "jsonwebtoken";
 import multer from "multer";
 import { v4 as uuidv4 } from "uuid";
@@ -515,6 +525,7 @@ export async function registerRoutes(
       }
 
       let issuesData: any = null;
+      let correctionPayloadResult: any = null;
       try {
         if (files.issues && files.issues.length > 0) {
           const issuesContent = fs.readFileSync(files.issues[0].path, "utf-8");
@@ -527,21 +538,56 @@ export async function registerRoutes(
         }
 
         if (issuesData) {
-          const validated = IssueBundleSchema.safeParse(issuesData);
-          if (!validated.success) {
-            fs.unlinkSync(pdfPath);
-            return res.status(400).json({ 
-              error: "Invalid issues format", 
-              details: validated.error.message 
-            });
+          if (isClaimsIQPayload(issuesData)) {
+            const schemaValidation = validateAgainstSchema(issuesData);
+            if (!schemaValidation.valid) {
+              fs.unlinkSync(pdfPath);
+              return res.status(400).json({
+                error: "Correction payload failed schema validation",
+                details: schemaValidation.errors,
+              });
+            }
+
+            correctionPayloadResult = adaptCorrectionPayload(issuesData);
+
+            claimId = correctionPayloadResult.claimId;
+            extractedInfo = {
+              claimId,
+              claimNumber: correctionPayloadResult.claimContext.claimNumber,
+              policyNumber: correctionPayloadResult.claimContext.policyNumber,
+              insuredName: correctionPayloadResult.claimContext.insuredName,
+              dateOfLoss: correctionPayloadResult.claimContext.dateOfLoss,
+            };
+
+            const issueBundle = adaptToIssueBundle(issuesData, documentId);
+
+            if (isSupabaseConfigured()) {
+              await storage.saveIssues(claimId, documentId, issueBundle, req.userId);
+            } else {
+              const issuesPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__issues.json`);
+              fs.writeFileSync(issuesPath, JSON.stringify(issueBundle, null, 2));
+            }
+
+            const fullPayloadPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__correction_payload.json`);
+            fs.writeFileSync(fullPayloadPath, JSON.stringify(correctionPayloadResult, null, 2));
+
+          } else {
+            const validated = IssueBundleSchema.safeParse(issuesData);
+            if (!validated.success) {
+              fs.unlinkSync(pdfPath);
+              return res.status(400).json({ 
+                error: "Invalid issues format", 
+                details: validated.error.message 
+              });
+            }
+            
+            if (isSupabaseConfigured()) {
+              await storage.saveIssues(claimId, documentId, validated.data, req.userId);
+            } else {
+              const issuesPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__issues.json`);
+              fs.writeFileSync(issuesPath, JSON.stringify(validated.data, null, 2));
+            }
           }
-          
-        if (isSupabaseConfigured()) {
-          await storage.saveIssues(claimId, documentId, validated.data, req.userId);
-        } else {
-          const issuesPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__issues.json`);
-          fs.writeFileSync(issuesPath, JSON.stringify(validated.data, null, 2));
-        }
         }
       } catch (parseError) {
         fs.unlinkSync(pdfPath);
