@@ -115,9 +115,17 @@ export const api = {
   async getDocuments(claimId: string): Promise<Document[]> {
     const res = await authenticatedFetch(`${API_BASE}/api/claims/${claimId}/documents`);
     const data = await res.json();
-    // Handle paginated response
     const responseData = data.data || data;
-    return Array.isArray(responseData) ? responseData : (responseData.data || []);
+    
+    if (Array.isArray(responseData)) {
+      return responseData;
+    }
+    
+    if (responseData && typeof responseData === 'object' && 'data' in responseData) {
+      return Array.isArray(responseData.data) ? responseData.data : [];
+    }
+    
+    return [];
   },
 
   async getSession(documentId: string): Promise<SessionData> {
@@ -251,38 +259,66 @@ export const api = {
       : `${API_BASE}/api/audit`;
     const res = await authenticatedFetch(url);
     const data = await res.json();
-    return data.data || data;
+    const responseData = data.data || data;
+    
+    if (Array.isArray(responseData)) {
+      return responseData;
+    }
+    
+    if (responseData && typeof responseData === 'object' && 'data' in responseData) {
+      return Array.isArray(responseData.data) ? responseData.data : [];
+    }
+    
+    return [];
   },
 
   // Canonical schema endpoints
   async getCorrections(documentId: string): Promise<Correction[]> {
-    const res = await fetch(`${API_BASE}/api/documents/${documentId}/corrections`);
-    if (!res.ok) throw new Error("Failed to fetch corrections");
-    return res.json();
+    const res = await authenticatedFetch(`${API_BASE}/api/documents/${documentId}/corrections`);
+    const data = await res.json();
+    const responseData = data.data || data;
+    
+    if (Array.isArray(responseData)) {
+      return responseData;
+    }
+    
+    if (responseData && typeof responseData === 'object' && 'data' in responseData) {
+      return Array.isArray(responseData.data) ? responseData.data : [];
+    }
+    
+    return [];
   },
 
-  async saveCorrection(documentId: string, correction: Correction): Promise<void> {
-    const res = await fetch(`${API_BASE}/api/documents/${documentId}/corrections`, {
+  async saveCorrection(documentId: string, correction: Correction): Promise<Correction> {
+    const res = await authenticatedFetch(`${API_BASE}/api/documents/${documentId}/corrections`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(correction),
     });
-    if (!res.ok) throw new Error("Failed to save correction");
+    const data = await res.json();
+    return data.data || data;
   },
 
-  async updateCorrectionStatus(correctionId: string, status: Correction["status"]): Promise<void> {
-    const res = await fetch(`${API_BASE}/api/corrections/${correctionId}/status`, {
+  async updateCorrectionStatus(correctionId: string, status: Correction["status"], method?: string): Promise<void> {
+    await authenticatedFetch(`${API_BASE}/api/corrections/${correctionId}/status`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, method }),
     });
-    if (!res.ok) throw new Error("Failed to update correction status");
   },
 
   async getAnnotations(documentId: string): Promise<Annotation[]> {
-    const res = await fetch(`${API_BASE}/api/documents/${documentId}/annotations`);
-    if (!res.ok) throw new Error("Failed to fetch annotations");
-    return res.json();
+    const res = await authenticatedFetch(`${API_BASE}/api/documents/${documentId}/annotations`);
+    const data = await res.json();
+    const responseData = data.data || data;
+    
+    if (Array.isArray(responseData)) {
+      return responseData;
+    }
+    
+    if (responseData && typeof responseData === 'object' && 'data' in responseData) {
+      return Array.isArray(responseData.data) ? responseData.data : [];
+    }
+    
+    return [];
   },
 
   async saveAnnotation(documentId: string, annotation: Annotation): Promise<Annotation> {
@@ -295,16 +331,25 @@ export const api = {
   },
 
   async deleteAnnotation(annotationId: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/api/annotations/${annotationId}`, {
+    await authenticatedFetch(`${API_BASE}/api/annotations/${annotationId}`, {
       method: "DELETE",
     });
-    if (!res.ok) throw new Error("Failed to delete annotation");
   },
 
   async getCrossDocumentValidations(claimId: string): Promise<CrossDocumentValidation[]> {
-    const res = await fetch(`${API_BASE}/api/claims/${claimId}/validations`);
-    if (!res.ok) throw new Error("Failed to fetch cross-document validations");
-    return res.json();
+    const res = await authenticatedFetch(`${API_BASE}/api/claims/${claimId}/validations`);
+    const data = await res.json();
+    const responseData = data.data || data;
+    
+    if (Array.isArray(responseData)) {
+      return responseData;
+    }
+    
+    if (responseData && typeof responseData === 'object' && 'data' in responseData) {
+      return Array.isArray(responseData.data) ? responseData.data : [];
+    }
+    
+    return [];
   },
 
   async validateCrossDocument(claimId: string): Promise<CrossDocumentValidation[]> {
