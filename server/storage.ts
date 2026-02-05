@@ -505,6 +505,8 @@ export class SupabaseStorage implements IStorage {
     
     return (data || []).map(row => ({
       id: row.id,
+      claim_id: row.claim_id,
+      document_id: row.document_id,
       type: row.type as Correction["type"],
       severity: row.severity as Correction["severity"],
       location: row.location,
@@ -540,6 +542,8 @@ export class SupabaseStorage implements IStorage {
     
     return (data || []).map(row => ({
       id: row.id,
+      claim_id: row.claim_id,
+      document_id: row.document_id,
       type: row.type as Correction["type"],
       severity: row.severity as Correction["severity"],
       location: row.location,
@@ -560,13 +564,22 @@ export class SupabaseStorage implements IStorage {
   async createCorrection(correction: Correction, userId?: string): Promise<Correction> {
     if (!supabaseAdmin) throw new Error('Supabase not configured');
     
-    // Get claim_id from document_id
-    const doc = await this.getDocument(correction.evidence.source_document || "");
-    const claimId = doc?.claimId || "";
+    // Use claim_id from correction, or derive from document_id
+    let claimId = correction.claim_id;
+    if (!claimId && correction.document_id) {
+      const doc = await this.getDocument(correction.document_id);
+      claimId = doc?.claimId || "";
+    }
+    if (!claimId && correction.evidence.source_document) {
+      const doc = await this.getDocument(correction.evidence.source_document);
+      claimId = doc?.claimId || "";
+    }
+    
+    const documentId = correction.document_id || correction.evidence.source_document || "";
     
     const { data, error } = await supabaseAdmin.from('corrections').insert({
       id: correction.id,
-      document_id: correction.evidence.source_document || "",
+      document_id: documentId,
       claim_id: claimId,
       type: correction.type,
       severity: correction.severity,
@@ -589,6 +602,8 @@ export class SupabaseStorage implements IStorage {
     
     return {
       id: data.id,
+      claim_id: data.claim_id,
+      document_id: data.document_id,
       type: data.type as Correction["type"],
       severity: data.severity as Correction["severity"],
       location: data.location,

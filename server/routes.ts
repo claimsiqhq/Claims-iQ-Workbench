@@ -6,13 +6,16 @@ import { AuditLogSchema, SessionDataSchema, IssueBundleSchema } from "@shared/sc
 import { DocumentCorrectionPayloadSchema, CorrectionSchema, AnnotationSchema, CrossDocumentValidationSchema } from "@shared/schemas";
 import { FieldExtractor } from "./services/field-extractor";
 import { CrossDocumentValidator } from "./services/cross-document-validator";
+import { authenticateRequest, optionalAuth } from "./middleware/auth";
+import { uploadLimiter, auditLimiter, apiLimiter, validationLimiter } from "./middleware/rate-limit";
 import jwt from "jsonwebtoken";
 import multer from "multer";
 import { v4 as uuidv4 } from "uuid";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
-import { parsePdfFile, type ExtractedClaimInfo } from "./pdf-parser";
+import { parsePdfFile, extractPdfText, type ExtractedClaimInfo } from "./pdf-parser";
+import crypto from "crypto";
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 const STORAGE_DIR = path.resolve(process.cwd(), "storage");
@@ -22,15 +25,32 @@ const AUDIT_LOG_FILE = path.join(DATA_DIR, "audit.log");
 const auditMemory: any[] = [];
 const MAX_AUDIT_MEMORY = 200;
 
+/**
+ * Validate PDF file by checking magic bytes
+ */
+function validatePdfFile(filePath: string): boolean {
+  try {
+    const buffer = fs.readFileSync(filePath, { start: 0, end: 4 });
+    return buffer.toString() === "%PDF";
+  } catch {
+    return false;
+  }
+}
+
 const upload = multer({
   dest: STORAGE_DIR,
   limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === "application/pdf") {
-      cb(null, true);
-    } else {
-      cb(new Error("Only PDF files are allowed"));
+    // Check MIME type
+    if (file.mimetype !== "application/pdf") {
+      return cb(new Error("Only PDF files are allowed"));
     }
+    
+    // Sanitize filename
+    const sanitized = path.basename(file.originalname).replace(/[^a-zA-Z0-9.-]/g, "_");
+    file.originalname = sanitized;
+    
+    cb(null, true);
   },
 });
 
@@ -65,6 +85,42 @@ function appendAuditLogLocal(record: any) {
     auditMemory.shift();
   }
 }
+
+/**
+ * Validate JWT private key format and strength
+ */
+function validateJwtKey(): void {
+  const privateKey = process.env.JWT_PRIVATE_KEY_PEM;
+  if (!privateKey) {
+    console.warn("JWT_PRIVATE_KEY_PEM not configured - JWT generation will fail");
+    return;
+  }
+
+  try {
+    // Validate RSA key format
+    if (
+      !privateKey.includes("BEGIN RSA PRIVATE KEY") &&
+      !privateKey.includes("BEGIN PRIVATE KEY")
+    ) {
+      throw new Error("JWT_PRIVATE_KEY_PEM must be a valid RSA private key");
+    }
+
+    // Validate key strength (should be at least 2048 bits)
+    const key = crypto.createPrivateKey(privateKey);
+    if (key.asymmetricKeySize && key.asymmetricKeySize < 2048) {
+      throw new Error("JWT key must be at least 2048 bits");
+    }
+  } catch (error) {
+    console.error(`Invalid JWT key format: ${error instanceof Error ? error.message : "Unknown error"}`);
+    // Don't throw in dev mode, but log warning
+    if (process.env.NODE_ENV === "production") {
+      throw error;
+    }
+  }
+}
+
+// Validate on module load
+validateJwtKey();
 
 function generateJWT(documentId: string): { jwt: string; exp: number } {
   const privateKey = process.env.JWT_PRIVATE_KEY_PEM;
@@ -248,17 +304,65 @@ async function downloadFromSupabase(documentId: string): Promise<Buffer | null> 
   return Buffer.from(arrayBuffer);
 }
 
+/**
+ * Standardized error response format
+ */
+function sendError(res: Response, status: number, code: string, message: string, details?: any): void {
+  res.status(status).json({
+    error: {
+      code,
+      message,
+      ...(details && { details }),
+    },
+  });
+}
+
+/**
+ * Standardized success response format
+ */
+function sendSuccess<T>(res: Response, data: T, status: number = 200): void {
+  res.status(status).json({ data });
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   ensureDataFiles();
 
-  app.use(cors({
-    origin: true,
-    credentials: true,
-  }));
+  // CORS configuration - restrict to known origins
+  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",").filter(Boolean) || [
+    "http://localhost:5000",
+    "http://localhost:3000",
+    process.env.PUBLIC_BASE_URL,
+  ].filter(Boolean);
 
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, Postman, etc.)
+        if (!origin) {
+          return callback(null, true);
+        }
+
+        if (allowedOrigins.includes(origin) || process.env.NODE_ENV === "development") {
+          callback(null, true);
+        } else {
+          callback(new Error("Not allowed by CORS"));
+        }
+      },
+      credentials: true,
+    })
+  );
+
+  // Apply request ID and logging middleware
+  app.use(requestIdMiddleware);
+  app.use(loggingMiddleware);
+  
+  // Apply rate limiting to all API routes
+  app.use("/api", apiLimiter);
+
+  // Health check - no auth required
   app.get("/api/health", async (req, res) => {
     let schemaValid = true;
     
@@ -271,24 +375,25 @@ export async function registerRoutes(
       }
     }
     
-    res.json({ 
+    sendSuccess(res, {
       ok: true,
       supabase: isSupabaseConfigured(),
       schemaValid,
     });
   });
 
-  app.get("/api/claims", async (req, res) => {
+  app.get("/api/claims", authenticateRequest, async (req, res) => {
     try {
       if (isSupabaseConfigured()) {
-        const claims = await storage.getClaims();
-        return res.json(claims);
+        const claims = await storage.getClaims(req.userId);
+        return sendSuccess(res, claims);
       }
       
       const index = readIndex();
-      res.json(index.claims);
+      sendSuccess(res, index.claims);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch claims" });
+      console.error("Error fetching claims:", error);
+      sendError(res, 500, "FETCH_ERROR", "Failed to fetch claims");
     }
   });
 
@@ -324,7 +429,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/documents/upload", upload.fields([
+  app.post("/api/documents/upload", uploadLimiter, authenticateRequest, upload.fields([
     { name: "file", maxCount: 1 },
     { name: "issues", maxCount: 1 },
   ]), async (req, res) => {
@@ -380,12 +485,12 @@ export async function registerRoutes(
             });
           }
           
-          if (isSupabaseConfigured()) {
-            await storage.saveIssues(claimId, documentId, validated.data);
-          } else {
-            const issuesPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__issues.json`);
-            fs.writeFileSync(issuesPath, JSON.stringify(validated.data, null, 2));
-          }
+        if (isSupabaseConfigured()) {
+          await storage.saveIssues(claimId, documentId, validated.data, req.userId);
+        } else {
+          const issuesPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__issues.json`);
+          fs.writeFileSync(issuesPath, JSON.stringify(validated.data, null, 2));
+        }
         }
       } catch (parseError) {
         fs.unlinkSync(pdfPath);
@@ -440,18 +545,18 @@ export async function registerRoutes(
 
       await registerWithDocEngine(documentId);
 
-      res.json({ 
-        claimId, 
+      sendSuccess(res, {
+        claimId,
         documentId,
-        extractedInfo 
-      });
+        extractedInfo,
+      }, 201);
     } catch (error) {
       console.error("Upload error:", error);
-      res.status(500).json({ error: "Failed to upload document" });
+      sendError(res, 500, "UPLOAD_ERROR", "Failed to upload document");
     }
   });
 
-  app.post("/api/claims/:claimId/documents", upload.fields([
+  app.post("/api/claims/:claimId/documents", uploadLimiter, authenticateRequest, upload.fields([
     { name: "file", maxCount: 1 },
     { name: "issues", maxCount: 1 },
   ]), async (req, res) => {
@@ -497,7 +602,7 @@ export async function registerRoutes(
           }
           
           if (isSupabaseConfigured()) {
-            await storage.saveIssues(sanitizedClaimId, documentId, validated.data);
+            await storage.saveIssues(sanitizedClaimId, documentId, validated.data, req.userId);
           } else {
             const issuesPath = path.join(STORAGE_DIR, `${sanitizedClaimId}__${documentId}__issues.json`);
             fs.writeFileSync(issuesPath, JSON.stringify(validated.data, null, 2));
@@ -512,11 +617,11 @@ export async function registerRoutes(
       }
 
       if (isSupabaseConfigured()) {
-        const storagePath = await uploadToSupabaseStorage(pdfPath, documentId);
+        const storagePath = await uploadToSupabaseStorage(pdfPath, documentId, req.userId);
         
         const claimExists = await storage.claimExists(sanitizedClaimId);
         if (!claimExists) {
-          await storage.createClaim({ claimId: sanitizedClaimId });
+          await storage.createClaim({ claimId: sanitizedClaimId }, req.userId);
         }
         
         await storage.createDocument({
@@ -525,7 +630,7 @@ export async function registerRoutes(
           title: pdfFile.originalname || `${documentId}.pdf`,
           filePath: storagePath || `public/${documentId}.pdf`,
           fileSize: pdfFile.size,
-        });
+        }, req.userId);
       } else {
         const index = readIndex();
         let claim = index.claims.find((c) => c.claimId === sanitizedClaimId);
@@ -545,10 +650,10 @@ export async function registerRoutes(
 
       await registerWithDocEngine(documentId);
 
-      res.json({ claimId: sanitizedClaimId, documentId });
+      sendSuccess(res, { claimId: sanitizedClaimId, documentId }, 201);
     } catch (error) {
       console.error("Upload error:", error);
-      res.status(500).json({ error: "Failed to upload document" });
+      sendError(res, 500, "UPLOAD_ERROR", "Failed to upload document");
     }
   });
 
@@ -582,17 +687,17 @@ export async function registerRoutes(
     res.sendFile(filePath);
   });
 
-  app.get("/api/session/:documentId", async (req, res) => {
+  app.get("/api/session/:documentId", optionalAuth, async (req, res) => {
     try {
       const sanitizedDocId = sanitizeId(req.params.documentId);
       
       if (!sanitizedDocId) {
-        return res.status(400).json({ error: "Invalid document ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid document ID");
       }
       
       const exists = await documentExistsCheck(sanitizedDocId);
       if (!exists) {
-        return res.status(404).json({ error: "Document not found" });
+        return sendError(res, 404, "NOT_FOUND", "Document not found");
       }
       
       const docEngineUrl = process.env.DOC_ENGINE_URL;
@@ -612,12 +717,10 @@ export async function registerRoutes(
             exp,
           });
 
-          return res.json(sessionData);
+          return sendSuccess(res, sessionData);
         } catch (jwtError) {
           console.error("JWT generation failed:", jwtError);
-          return res.status(500).json({ 
-            error: "JWT configuration error. Check JWT_PRIVATE_KEY_PEM format." 
-          });
+          return sendError(res, 500, "JWT_ERROR", "JWT configuration error. Check JWT_PRIVATE_KEY_PEM format.");
         }
       }
 
@@ -626,70 +729,73 @@ export async function registerRoutes(
         autoSaveMode: "DISABLED" as const,
       });
       
-      res.json(fallbackSession);
+      sendSuccess(res, fallbackSession);
     } catch (error) {
       console.error("Session error:", error);
-      res.status(500).json({ error: "Failed to create session" });
+      sendError(res, 500, "SESSION_ERROR", "Failed to create session");
     }
   });
 
-  app.get("/api/claims/:claimId/documents/:documentId/issues", async (req, res) => {
+  app.get("/api/claims/:claimId/documents/:documentId/issues", authenticateRequest, async (req, res) => {
     try {
       const sanitizedClaimId = sanitizeId(req.params.claimId);
       const sanitizedDocId = sanitizeId(req.params.documentId);
       
       if (!sanitizedClaimId || !sanitizedDocId) {
-        return res.status(400).json({ error: "Invalid claim or document ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid claim or document ID");
       }
       
+      // Verify document belongs to user
       const exists = await documentExistsCheck(sanitizedDocId, sanitizedClaimId);
       if (!exists) {
-        return res.status(404).json({ error: "Document not found for this claim" });
+        return sendError(res, 404, "NOT_FOUND", "Document not found for this claim");
       }
       
       if (isSupabaseConfigured()) {
         const issues = await storage.getIssues(sanitizedClaimId, sanitizedDocId);
-        return res.json(issues);
+        return sendSuccess(res, issues);
       }
       
       const issuesPath = path.join(STORAGE_DIR, `${sanitizedClaimId}__${sanitizedDocId}__issues.json`);
       
       if (fs.existsSync(issuesPath)) {
         const issuesData = fs.readFileSync(issuesPath, "utf-8");
-        return res.json(JSON.parse(issuesData));
+        return sendSuccess(res, JSON.parse(issuesData));
       }
 
       const issues = await storage.getIssues(sanitizedClaimId, sanitizedDocId);
-      res.json(issues);
+      sendSuccess(res, issues);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch issues" });
+      console.error("Error fetching issues:", error);
+      sendError(res, 500, "FETCH_ERROR", "Failed to fetch issues");
     }
   });
 
-  app.post("/api/audit", async (req, res) => {
+  app.post("/api/audit", auditLimiter, authenticateRequest, async (req, res) => {
     try {
       const audit = AuditLogSchema.parse(req.body);
       
       if (isSupabaseConfigured()) {
-        await storage.logAudit(audit);
+        await storage.logAudit(audit, req.userId);
       } else {
         appendAuditLogLocal(audit);
       }
 
-      res.json({ success: true });
+      sendSuccess(res, { success: true });
     } catch (error) {
-      res.status(400).json({ error: "Invalid audit log data" });
+      console.error("Error logging audit:", error);
+      sendError(res, 400, "VALIDATION_ERROR", "Invalid audit log data");
     }
   });
 
-  app.get("/api/audit", async (req, res) => {
+  app.get("/api/audit", authenticateRequest, async (req, res) => {
     try {
       const { documentId } = req.query;
       const docId = documentId ? String(documentId) : undefined;
       
       if (isSupabaseConfigured()) {
         const logs = await storage.getAuditLogs(docId);
-        return res.json(logs);
+        return sendSuccess(res, logs);
       }
       
       let results = [...auditMemory];
@@ -698,282 +804,375 @@ export async function registerRoutes(
         results = results.filter((r) => r.documentId === docId);
       }
 
-      res.json(results.slice(-100));
+      sendSuccess(res, results.slice(-100));
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch audit logs" });
+      console.error("Error fetching audit logs:", error);
+      sendError(res, 500, "FETCH_ERROR", "Failed to fetch audit logs");
     }
   });
 
-  app.patch("/api/issues/:issueId/status", async (req, res) => {
+  app.patch("/api/issues/:issueId/status", authenticateRequest, async (req, res) => {
     try {
       const sanitizedIssueId = sanitizeId(req.params.issueId);
       
       if (!sanitizedIssueId) {
-        return res.status(400).json({ error: "Invalid issue ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid issue ID");
       }
       
       const { status } = req.body;
       
       if (!status || !['OPEN', 'APPLIED', 'MANUAL', 'REJECTED'].includes(status)) {
-        return res.status(400).json({ error: "Invalid status" });
+        return sendError(res, 400, "VALIDATION_ERROR", "Invalid status");
       }
       
       await storage.updateIssueStatus(sanitizedIssueId, status);
       
-      res.json({ success: true });
+      sendSuccess(res, { success: true });
     } catch (error) {
-      res.status(500).json({ error: "Failed to update issue status" });
+      console.error("Error updating issue status:", error);
+      sendError(res, 500, "UPDATE_ERROR", "Failed to update issue status");
     }
   });
 
   // Canonical schema endpoints
-  app.post("/api/documents/:documentId/corrections", async (req, res) => {
+  app.post("/api/documents/:documentId/corrections", authenticateRequest, async (req, res) => {
     try {
       const sanitizedDocId = sanitizeId(req.params.documentId);
       if (!sanitizedDocId) {
-        return res.status(400).json({ error: "Invalid document ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid document ID");
       }
 
-      const userId = req.headers['x-user-id'] as string;
+      // Verify document belongs to user
+      const doc = await storage.getDocument(sanitizedDocId);
+      if (!doc) {
+        return sendError(res, 404, "NOT_FOUND", "Document not found");
+      }
+
       const correctionData = CorrectionSchema.parse(req.body);
       
-      // Ensure document_id is set in evidence
+      // Ensure document_id and claim_id are set
+      if (!correctionData.claim_id) {
+        return sendError(res, 400, "VALIDATION_ERROR", "claim_id is required");
+      }
+      
+      // Verify claim_id matches document's claim
+      if (doc.claimId !== correctionData.claim_id) {
+        return sendError(res, 400, "VALIDATION_ERROR", "claim_id does not match document's claim");
+      }
+      
       const correction = {
         ...correctionData,
+        document_id: sanitizedDocId,
         evidence: {
           ...correctionData.evidence,
           source_document: sanitizedDocId,
         },
       };
       
-      const created = await storage.createCorrection(correction, userId);
-      res.status(201).json(created);
+      const created = await storage.createCorrection(correction, req.userId);
+      sendSuccess(res, created, 201);
     } catch (error) {
-      res.status(400).json({ error: "Invalid correction data" });
+      console.error("Error creating correction:", error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return sendError(res, 400, "VALIDATION_ERROR", "Invalid correction data", error);
+      }
+      sendError(res, 400, "VALIDATION_ERROR", "Invalid correction data");
     }
   });
 
-  app.get("/api/documents/:documentId/corrections", async (req, res) => {
+  app.get("/api/documents/:documentId/corrections", authenticateRequest, async (req, res) => {
     try {
       const sanitizedDocId = sanitizeId(req.params.documentId);
       if (!sanitizedDocId) {
-        return res.status(400).json({ error: "Invalid document ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid document ID");
       }
 
-      const corrections = await storage.getCorrections(sanitizedDocId);
-      res.json(corrections);
+      // Verify document belongs to user
+      const doc = await storage.getDocument(sanitizedDocId);
+      if (!doc) {
+        return sendError(res, 404, "NOT_FOUND", "Document not found");
+      }
+
+      const corrections = await storage.getCorrections(sanitizedDocId, req.userId);
+      sendSuccess(res, corrections);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch corrections" });
+      console.error("Error fetching corrections:", error);
+      sendError(res, 500, "FETCH_ERROR", "Failed to fetch corrections");
     }
   });
 
-  app.patch("/api/corrections/:correctionId/status", async (req, res) => {
+  app.patch("/api/corrections/:correctionId/status", authenticateRequest, async (req, res) => {
     try {
       const sanitizedId = sanitizeId(req.params.correctionId);
       if (!sanitizedId) {
-        return res.status(400).json({ error: "Invalid correction ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid correction ID");
       }
 
       const { status, method } = req.body;
       if (!status || !['pending', 'applied', 'rejected', 'manual'].includes(status)) {
-        return res.status(400).json({ error: "Invalid status" });
+        return sendError(res, 400, "VALIDATION_ERROR", "Invalid status");
       }
-
-      // Get userId from auth if available
-      const userId = req.headers['x-user-id'] as string;
       
-      await storage.updateCorrectionStatus(sanitizedId, status, userId, method, userId);
-      res.json({ success: true });
+      await storage.updateCorrectionStatus(sanitizedId, status, req.userId, method, req.userId);
+      sendSuccess(res, { success: true });
     } catch (error) {
-      res.status(500).json({ error: "Failed to update correction status" });
+      console.error("Error updating correction status:", error);
+      sendError(res, 500, "UPDATE_ERROR", "Failed to update correction status");
     }
   });
 
-  app.post("/api/documents/:documentId/annotations", async (req, res) => {
+  app.post("/api/documents/:documentId/annotations", authenticateRequest, async (req, res) => {
     try {
       const sanitizedDocId = sanitizeId(req.params.documentId);
       if (!sanitizedDocId) {
-        return res.status(400).json({ error: "Invalid document ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid document ID");
       }
 
-      const userId = req.headers['x-user-id'] as string;
+      // Verify document belongs to user
+      const doc = await storage.getDocument(sanitizedDocId);
+      if (!doc) {
+        return sendError(res, 404, "NOT_FOUND", "Document not found");
+      }
+
       const annotationData = AnnotationSchema.parse(req.body);
       
-      // Set document_id in annotation location if needed
       const annotation = {
         ...annotationData,
         location: annotationData.location,
       };
       
-      const created = await storage.createAnnotation(annotation, userId);
+      const created = await storage.createAnnotation(annotation, req.userId);
       
-      // Update document_id after creation
-      if (created && supabaseAdmin) {
+      // Update document_id after creation (if not set in annotation)
+      if (created && supabaseAdmin && !created.document_id) {
         await supabaseAdmin
           .from('annotations')
           .update({ document_id: sanitizedDocId })
           .eq('id', created.id);
+        created.document_id = sanitizedDocId;
       }
       
-      res.status(201).json(created);
+      sendSuccess(res, created, 201);
     } catch (error) {
-      res.status(400).json({ error: "Invalid annotation data" });
+      console.error("Error creating annotation:", error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return sendError(res, 400, "VALIDATION_ERROR", "Invalid annotation data", error);
+      }
+      sendError(res, 400, "VALIDATION_ERROR", "Invalid annotation data");
     }
   });
 
-  app.get("/api/documents/:documentId/annotations", async (req, res) => {
+  app.get("/api/documents/:documentId/annotations", authenticateRequest, async (req, res) => {
     try {
       const sanitizedDocId = sanitizeId(req.params.documentId);
       if (!sanitizedDocId) {
-        return res.status(400).json({ error: "Invalid document ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid document ID");
       }
 
-      const annotations = await storage.getAnnotations(sanitizedDocId);
-      res.json(annotations);
+      // Verify document belongs to user
+      const doc = await storage.getDocument(sanitizedDocId);
+      if (!doc) {
+        return sendError(res, 404, "NOT_FOUND", "Document not found");
+      }
+
+      const annotations = await storage.getAnnotations(sanitizedDocId, req.userId);
+      sendSuccess(res, annotations);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch annotations" });
+      console.error("Error fetching annotations:", error);
+      sendError(res, 500, "FETCH_ERROR", "Failed to fetch annotations");
     }
   });
 
-  app.delete("/api/annotations/:annotationId", async (req, res) => {
+  app.delete("/api/annotations/:annotationId", authenticateRequest, async (req, res) => {
     try {
       const sanitizedId = sanitizeId(req.params.annotationId);
       if (!sanitizedId) {
-        return res.status(400).json({ error: "Invalid annotation ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid annotation ID");
       }
 
-      await storage.deleteAnnotation(sanitizedId);
-      res.json({ success: true });
+      await storage.deleteAnnotation(sanitizedId, req.userId);
+      sendSuccess(res, { success: true });
     } catch (error) {
-      res.status(500).json({ error: "Failed to delete annotation" });
+      console.error("Error deleting annotation:", error);
+      sendError(res, 500, "DELETE_ERROR", "Failed to delete annotation");
     }
   });
 
-  app.get("/api/claims/:claimId/validations", async (req, res) => {
+  app.patch("/api/annotations/:annotationId", authenticateRequest, async (req, res) => {
     try {
-      const sanitizedClaimId = sanitizeId(req.params.claimId);
-      if (!sanitizedClaimId) {
-        return res.status(400).json({ error: "Invalid claim ID" });
+      const sanitizedId = sanitizeId(req.params.annotationId);
+      if (!sanitizedId) {
+        return sendError(res, 400, "INVALID_INPUT", "Invalid annotation ID");
       }
 
-      const validations = await storage.getCrossDocumentValidations(sanitizedClaimId);
-      res.json(validations);
+      const updates = req.body;
+      const updated = await storage.updateAnnotation(sanitizedId, updates, req.userId);
+      sendSuccess(res, updated);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch cross-document validations" });
+      console.error("Error updating annotation:", error);
+      sendError(res, 500, "UPDATE_ERROR", "Failed to update annotation");
     }
   });
 
-  app.get("/api/claims/:claimId/cross-document-validations", async (req, res) => {
+  app.get("/api/claims/:claimId/validations", authenticateRequest, async (req, res) => {
     try {
       const sanitizedClaimId = sanitizeId(req.params.claimId);
       if (!sanitizedClaimId) {
-        return res.status(400).json({ error: "Invalid claim ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid claim ID");
       }
 
-      const validations = await storage.getCrossDocumentValidations(sanitizedClaimId);
-      res.json(validations);
+      // Verify claim belongs to user
+      const claim = await storage.getClaimById(sanitizedClaimId);
+      if (!claim) {
+        return sendError(res, 404, "NOT_FOUND", "Claim not found");
+      }
+
+      const validations = await storage.getCrossDocumentValidations(sanitizedClaimId, req.userId);
+      sendSuccess(res, validations);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch cross-document validations" });
+      console.error("Error fetching validations:", error);
+      sendError(res, 500, "FETCH_ERROR", "Failed to fetch cross-document validations");
     }
   });
 
-  app.post("/api/claims/:claimId/cross-document-validations", async (req, res) => {
+  app.get("/api/claims/:claimId/cross-document-validations", authenticateRequest, async (req, res) => {
     try {
       const sanitizedClaimId = sanitizeId(req.params.claimId);
       if (!sanitizedClaimId) {
-        return res.status(400).json({ error: "Invalid claim ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid claim ID");
+      }
+
+      // Verify claim belongs to user
+      const claim = await storage.getClaimById(sanitizedClaimId);
+      if (!claim) {
+        return sendError(res, 404, "NOT_FOUND", "Claim not found");
+      }
+
+      const validations = await storage.getCrossDocumentValidations(sanitizedClaimId, req.userId);
+      sendSuccess(res, validations);
+    } catch (error) {
+      console.error("Error fetching validations:", error);
+      sendError(res, 500, "FETCH_ERROR", "Failed to fetch cross-document validations");
+    }
+  });
+
+  app.post("/api/claims/:claimId/cross-document-validations", authenticateRequest, async (req, res) => {
+    try {
+      const sanitizedClaimId = sanitizeId(req.params.claimId);
+      if (!sanitizedClaimId) {
+        return sendError(res, 400, "INVALID_INPUT", "Invalid claim ID");
+      }
+
+      // Verify claim belongs to user
+      const claim = await storage.getClaimById(sanitizedClaimId);
+      if (!claim) {
+        return sendError(res, 404, "NOT_FOUND", "Claim not found");
       }
 
       const validation = CrossDocumentValidationSchema.parse(req.body);
-      await storage.saveCrossDocumentValidation(validation);
-      res.json({ success: true, validation });
+      await storage.saveCrossDocumentValidation(validation, req.userId);
+      sendSuccess(res, { success: true, validation }, 201);
     } catch (error) {
-      res.status(400).json({ error: "Invalid validation data" });
+      console.error("Error creating validation:", error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return sendError(res, 400, "VALIDATION_ERROR", "Invalid validation data", error);
+      }
+      sendError(res, 400, "VALIDATION_ERROR", "Invalid validation data");
     }
   });
 
-  app.patch("/api/cross-document-validations/:validationId/status", async (req, res) => {
+  app.patch("/api/cross-document-validations/:validationId/status", authenticateRequest, async (req, res) => {
     try {
       const sanitizedId = sanitizeId(req.params.validationId);
       if (!sanitizedId) {
-        return res.status(400).json({ error: "Invalid validation ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid validation ID");
       }
 
       const { status, resolved_value } = req.body;
       if (!status || !['pending', 'resolved', 'ignored', 'escalated'].includes(status)) {
-        return res.status(400).json({ error: "Invalid status" });
+        return sendError(res, 400, "VALIDATION_ERROR", "Invalid status");
       }
 
-      await storage.updateCrossDocumentValidationStatus(sanitizedId, status, resolved_value);
-      res.json({ success: true });
+      await storage.updateCrossDocumentValidationStatus(sanitizedId, status, resolved_value, req.userId);
+      sendSuccess(res, { success: true });
     } catch (error) {
-      res.status(500).json({ error: "Failed to update validation status" });
+      console.error("Error updating validation status:", error);
+      sendError(res, 500, "UPDATE_ERROR", "Failed to update validation status");
     }
   });
 
-  app.post("/api/validations/:id/resolve", async (req, res) => {
+  app.post("/api/validations/:id/resolve", authenticateRequest, async (req, res) => {
     try {
       const sanitizedId = sanitizeId(req.params.id);
       if (!sanitizedId) {
-        return res.status(400).json({ error: "Invalid validation ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid validation ID");
       }
 
       const { resolved_value } = req.body;
       if (!resolved_value) {
-        return res.status(400).json({ error: "resolved_value is required" });
+        return sendError(res, 400, "VALIDATION_ERROR", "resolved_value is required");
       }
-
-      // Get userId from auth if available
-      const userId = req.headers['x-user-id'] as string || 'system';
       
-      await storage.resolveCrossDocValidation(sanitizedId, resolved_value, userId);
-      res.json({ success: true });
+      await storage.resolveCrossDocValidation(sanitizedId, resolved_value, req.userId!);
+      sendSuccess(res, { success: true });
     } catch (error) {
-      res.status(500).json({ error: "Failed to resolve validation" });
+      console.error("Error resolving validation:", error);
+      sendError(res, 500, "RESOLVE_ERROR", "Failed to resolve validation");
     }
   });
 
-  app.post("/api/validations/:id/escalate", async (req, res) => {
+  app.post("/api/validations/:id/escalate", authenticateRequest, async (req, res) => {
     try {
       const sanitizedId = sanitizeId(req.params.id);
       if (!sanitizedId) {
-        return res.status(400).json({ error: "Invalid validation ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid validation ID");
       }
 
       const { reason } = req.body;
       if (!reason) {
-        return res.status(400).json({ error: "reason is required" });
+        return sendError(res, 400, "VALIDATION_ERROR", "reason is required");
       }
 
       await storage.escalateCrossDocValidation(sanitizedId, reason);
-      res.json({ success: true });
+      sendSuccess(res, { success: true });
     } catch (error) {
-      res.status(500).json({ error: "Failed to escalate validation" });
+      console.error("Error escalating validation:", error);
+      sendError(res, 500, "ESCALATE_ERROR", "Failed to escalate validation");
     }
   });
 
-  app.post("/api/correction-payload", async (req, res) => {
+  app.post("/api/correction-payload", authenticateRequest, async (req, res) => {
     try {
       const payload = DocumentCorrectionPayloadSchema.parse(req.body);
-      await storage.saveCorrectionPayload(payload);
-      res.json({ success: true, payload });
+      await storage.saveCorrectionPayload(payload, req.userId);
+      sendSuccess(res, { success: true, payload }, 201);
     } catch (error) {
-      res.status(400).json({ error: "Invalid correction payload", details: error instanceof Error ? error.message : "Parse error" });
+      console.error("Error saving correction payload:", error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return sendError(res, 400, "VALIDATION_ERROR", "Invalid correction payload", error);
+      }
+      sendError(res, 400, "VALIDATION_ERROR", "Invalid correction payload");
     }
   });
 
-  app.post("/api/claims/:claimId/validate", async (req, res) => {
+  app.post("/api/claims/:claimId/validate", validationLimiter, authenticateRequest, async (req, res) => {
     try {
       const sanitizedClaimId = sanitizeId(req.params.claimId);
       if (!sanitizedClaimId) {
-        return res.status(400).json({ error: "Invalid claim ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid claim ID");
+      }
+
+      // Verify claim belongs to user
+      const claim = await storage.getClaimById(sanitizedClaimId);
+      if (!claim) {
+        return sendError(res, 404, "NOT_FOUND", "Claim not found");
       }
 
       // Get all documents for this claim
       const documents = await storage.getDocumentsByClaim(sanitizedClaimId);
       
       if (documents.length < 2) {
-        return res.json({ validations: [], count: 0, message: "Need at least 2 documents to validate" });
+        return sendSuccess(res, { validations: [], count: 0, message: "Need at least 2 documents to validate" });
       }
 
       const extractor = new FieldExtractor();
@@ -982,9 +1181,38 @@ export async function registerRoutes(
       // Extract fields from each document
       const extractedDocs = await Promise.all(
         documents.map(async (doc) => {
-          // In a real implementation, you'd extract text from the PDF
-          // For now, we'll use a placeholder - in production, read PDF content
-          const content = ""; // TODO: Extract PDF text content using pdf-parser or similar
+          // Extract PDF text content
+          let content = "";
+          
+          if (isSupabaseConfigured()) {
+            // Download PDF from Supabase storage
+            const fileBuffer = await downloadFromSupabase(doc.documentId);
+            if (fileBuffer) {
+              // Save to temp file for pdf-parse
+              const tempPath = path.join(STORAGE_DIR, `temp-${doc.documentId}.pdf`);
+              fs.writeFileSync(tempPath, fileBuffer);
+              try {
+                content = await extractPdfText(tempPath, 10); // Extract first 10 pages
+                fs.unlinkSync(tempPath); // Clean up
+              } catch (parseError) {
+                console.error(`Error extracting text from ${doc.documentId}:`, parseError);
+                if (fs.existsSync(tempPath)) {
+                  fs.unlinkSync(tempPath);
+                }
+              }
+            }
+          } else {
+            // Fallback: read from local storage
+            const localPath = path.join(STORAGE_DIR, `${doc.documentId}.pdf`);
+            if (fs.existsSync(localPath)) {
+              try {
+                content = await extractPdfText(localPath, 10);
+              } catch (parseError) {
+                console.error(`Error extracting text from ${doc.documentId}:`, parseError);
+              }
+            }
+          }
+          
           const fields = await extractor.extractFromDocument(doc.documentId, content);
           return {
             document_id: doc.documentId,
@@ -998,23 +1226,100 @@ export async function registerRoutes(
       const validations = await validator.validateClaim(sanitizedClaimId, extractedDocs);
 
       // Save validations
-      const userId = req.headers['x-user-id'] as string;
       for (const validation of validations) {
         await storage.createCrossDocValidation({
           ...validation,
-        }, userId);
+        }, req.userId);
       }
 
-      res.json({ validations, count: validations.length });
+      sendSuccess(res, { validations, count: validations.length });
     } catch (error) {
       console.error("Cross-document validation error:", error);
-      res.status(500).json({ error: "Failed to validate cross-document consistency" });
+      sendError(res, 500, "VALIDATION_ERROR", "Failed to validate cross-document consistency");
     }
   });
 
-  app.post("/api/claims/:claimId/validate-cross-document", async (req, res) => {
-    // Alias for backward compatibility
-    return app._router.handle({ ...req, url: `/api/claims/${req.params.claimId}/validate`, method: 'POST' }, res);
+  app.post("/api/claims/:claimId/validate-cross-document", validationLimiter, authenticateRequest, async (req, res) => {
+    // Alias for backward compatibility - redirect to new endpoint
+    const sanitizedClaimId = sanitizeId(req.params.claimId);
+    if (!sanitizedClaimId) {
+      return sendError(res, 400, "INVALID_INPUT", "Invalid claim ID");
+    }
+    
+    // Call the actual handler by constructing a new request
+    const originalUrl = req.url;
+    req.url = `/api/claims/${sanitizedClaimId}/validate`;
+    
+    // Use the validate endpoint handler
+    try {
+      const claim = await storage.getClaimById(sanitizedClaimId);
+      if (!claim) {
+        return sendError(res, 404, "NOT_FOUND", "Claim not found");
+      }
+
+      const documents = await storage.getDocumentsByClaim(sanitizedClaimId);
+      
+      if (documents.length < 2) {
+        return sendSuccess(res, { validations: [], count: 0, message: "Need at least 2 documents to validate" });
+      }
+
+      const extractor = new FieldExtractor();
+      const validator = new CrossDocumentValidator();
+
+      const extractedDocs = await Promise.all(
+        documents.map(async (doc) => {
+          let content = "";
+          
+          if (isSupabaseConfigured()) {
+            const fileBuffer = await downloadFromSupabase(doc.documentId);
+            if (fileBuffer) {
+              const tempPath = path.join(STORAGE_DIR, `temp-${doc.documentId}.pdf`);
+              fs.writeFileSync(tempPath, fileBuffer);
+              try {
+                content = await extractPdfText(tempPath, 10);
+                fs.unlinkSync(tempPath);
+              } catch (parseError) {
+                console.error(`Error extracting text from ${doc.documentId}:`, parseError);
+                if (fs.existsSync(tempPath)) {
+                  fs.unlinkSync(tempPath);
+                }
+              }
+            }
+          } else {
+            const localPath = path.join(STORAGE_DIR, `${doc.documentId}.pdf`);
+            if (fs.existsSync(localPath)) {
+              try {
+                content = await extractPdfText(localPath, 10);
+              } catch (parseError) {
+                console.error(`Error extracting text from ${doc.documentId}:`, parseError);
+              }
+            }
+          }
+          
+          const fields = await extractor.extractFromDocument(doc.documentId, content);
+          return {
+            document_id: doc.documentId,
+            document_name: doc.name,
+            fields,
+          };
+        })
+      );
+
+      const validations = await validator.validateClaim(sanitizedClaimId, extractedDocs);
+
+      for (const validation of validations) {
+        await storage.createCrossDocValidation({
+          ...validation,
+        }, req.userId);
+      }
+
+      sendSuccess(res, { validations, count: validations.length });
+    } catch (error) {
+      console.error("Cross-document validation error:", error);
+      sendError(res, 500, "VALIDATION_ERROR", "Failed to validate cross-document consistency");
+    } finally {
+      req.url = originalUrl;
+    }
   });
 
   return httpServer;

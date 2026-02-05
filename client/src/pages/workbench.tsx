@@ -551,8 +551,11 @@ export default function Workbench() {
     if (!selectedDocumentId) return;
     
     try {
-      await api.saveAnnotation(selectedDocumentId, annotation);
-      setAnnotations((prev) => [...prev, annotation]);
+      const created = await api.saveAnnotation(selectedDocumentId, annotation);
+      setAnnotations((prev) => [...prev, created]);
+      
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ["annotations", selectedDocumentId] });
       
       // Also create via adapter if available
       if (pdfAdapter) {
@@ -569,19 +572,27 @@ export default function Workbench() {
         description: error instanceof Error ? error.message : "Unknown error",
         variant: "destructive",
       });
+      throw error; // Re-throw for optimistic update rollback
     }
   };
 
   const handleDeleteAnnotation = async (annotationId: string) => {
+    const previousAnnotations = annotations;
+    
+    // Optimistic update
+    setAnnotations((prev) => prev.filter((a) => a.id !== annotationId));
+    
     try {
       await api.deleteAnnotation(annotationId);
-      setAnnotations((prev) => prev.filter((a) => a.id !== annotationId));
+      queryClient.invalidateQueries({ queryKey: ["annotations", selectedDocumentId] });
       
       toast({
         title: "Annotation Deleted",
         description: "Annotation removed",
       });
     } catch (error) {
+      // Rollback on error
+      setAnnotations(previousAnnotations);
       toast({
         title: "Failed to Delete Annotation",
         description: error instanceof Error ? error.message : "Unknown error",
@@ -592,21 +603,28 @@ export default function Workbench() {
 
   // Cross-document validation handlers
   const handleResolveValidation = async (validationId: string, resolvedValue: string) => {
+    const previousValidations = crossDocValidations;
+    
+    // Optimistic update
+    setCrossDocValidations((prev) =>
+      prev.map((v) =>
+        v.id === validationId
+          ? { ...v, status: "resolved" as const, resolved_value: resolvedValue }
+          : v
+      )
+    );
+    
     try {
-      await api.updateCrossDocumentValidationStatus(validationId, "resolved", resolvedValue);
-      setCrossDocValidations((prev) =>
-        prev.map((v) =>
-          v.id === validationId
-            ? { ...v, status: "resolved" as const, resolved_value: resolvedValue }
-            : v
-        )
-      );
+      await api.resolveCrossDocValidation(validationId, resolvedValue);
+      queryClient.invalidateQueries({ queryKey: ["crossDocValidations", selectedClaimId] });
       
       toast({
         title: "Validation Resolved",
         description: `Resolved with value: ${resolvedValue}`,
       });
     } catch (error) {
+      // Rollback on error
+      setCrossDocValidations(previousValidations);
       toast({
         title: "Failed to Resolve Validation",
         description: error instanceof Error ? error.message : "Unknown error",
@@ -616,19 +634,26 @@ export default function Workbench() {
   };
 
   const handleIgnoreValidation = async (validationId: string) => {
+    const previousValidations = crossDocValidations;
+    
+    // Optimistic update
+    setCrossDocValidations((prev) =>
+      prev.map((v) =>
+        v.id === validationId ? { ...v, status: "ignored" as const } : v
+      )
+    );
+    
     try {
       await api.updateCrossDocumentValidationStatus(validationId, "ignored");
-      setCrossDocValidations((prev) =>
-        prev.map((v) =>
-          v.id === validationId ? { ...v, status: "ignored" as const } : v
-        )
-      );
+      queryClient.invalidateQueries({ queryKey: ["crossDocValidations", selectedClaimId] });
       
       toast({
         title: "Validation Ignored",
         description: "Validation marked as ignored",
       });
     } catch (error) {
+      // Rollback on error
+      setCrossDocValidations(previousValidations);
       toast({
         title: "Failed to Ignore Validation",
         description: error instanceof Error ? error.message : "Unknown error",
@@ -638,13 +663,18 @@ export default function Workbench() {
   };
 
   const handleEscalateValidation = async (validationId: string, reason: string) => {
+    const previousValidations = crossDocValidations;
+    
+    // Optimistic update
+    setCrossDocValidations((prev) =>
+      prev.map((v) =>
+        v.id === validationId ? { ...v, status: "escalated" as const } : v
+      )
+    );
+    
     try {
       await api.escalateCrossDocValidation(validationId, reason);
-      setCrossDocValidations((prev) =>
-        prev.map((v) =>
-          v.id === validationId ? { ...v, status: "escalated" as const } : v
-        )
-      );
+      queryClient.invalidateQueries({ queryKey: ["crossDocValidations", selectedClaimId] });
       
       toast({
         title: "Validation Escalated",
@@ -652,6 +682,8 @@ export default function Workbench() {
         variant: "destructive",
       });
     } catch (error) {
+      // Rollback on error
+      setCrossDocValidations(previousValidations);
       toast({
         title: "Failed to Escalate Validation",
         description: error instanceof Error ? error.message : "Unknown error",
@@ -665,11 +697,12 @@ export default function Workbench() {
     
     try {
       const result = await api.validateCrossDocument(selectedClaimId);
-      setCrossDocValidations(result.validations);
+      setCrossDocValidations(result.validations || result);
+      queryClient.invalidateQueries({ queryKey: ["crossDocValidations", selectedClaimId] });
       
       toast({
         title: "Validation Complete",
-        description: `Found ${result.count} inconsistencies`,
+        description: `Found ${Array.isArray(result) ? result.length : result.count || 0} inconsistencies`,
       });
     } catch (error) {
       toast({

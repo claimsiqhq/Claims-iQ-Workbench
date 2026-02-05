@@ -1,7 +1,77 @@
 import type { Claim, Document, IssueBundle, AuditLog, SessionData, ExtractedClaimInfo } from "@shared/schema";
 import type { Correction, Annotation, CrossDocumentValidation, DocumentCorrectionPayload } from "@shared/schemas";
+import { supabase } from "./supabase";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+
+/**
+ * Custom API Error class with status code and details
+ */
+export class APIError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+    public details?: any
+  ) {
+    super(message);
+    this.name = "APIError";
+  }
+}
+
+/**
+ * Get access token from Supabase session
+ */
+async function getAccessToken(): Promise<string | null> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || null;
+  } catch (error) {
+    console.error("Error getting access token:", error);
+    return null;
+  }
+}
+
+/**
+ * Authenticated fetch wrapper
+ */
+async function authenticatedFetch(
+  url: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const token = await getAccessToken();
+  const headers = new Headers(options.headers);
+  
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  
+  headers.set("Content-Type", "application/json");
+  
+  const response = await fetch(url, {
+    ...options,
+    headers,
+    credentials: "include",
+  });
+  
+  if (!response.ok) {
+    let errorData: any;
+    try {
+      errorData = await response.json();
+    } catch {
+      errorData = { error: { message: response.statusText } };
+    }
+    
+    throw new APIError(
+      response.status,
+      errorData.error?.code || "UNKNOWN_ERROR",
+      errorData.error?.message || `Request failed: ${response.statusText}`,
+      errorData.error?.details
+    );
+  }
+  
+  return response;
+}
 
 export interface HealthStatus {
   ok: boolean;
@@ -12,41 +82,43 @@ export interface HealthStatus {
 export const api = {
   async getHealth(): Promise<HealthStatus> {
     const res = await fetch(`${API_BASE}/api/health`);
-    if (!res.ok) throw new Error("Failed to fetch health status");
-    return res.json();
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ error: { message: res.statusText } }));
+      throw new APIError(res.status, error.error?.code || "UNKNOWN_ERROR", error.error?.message || "Failed to fetch health status");
+    }
+    const data = await res.json();
+    return data.data || data; // Handle both { data: ... } and direct response
   },
 
   async getClaims(): Promise<Claim[]> {
-    const res = await fetch(`${API_BASE}/api/claims`);
-    if (!res.ok) throw new Error("Failed to fetch claims");
-    return res.json();
+    const res = await authenticatedFetch(`${API_BASE}/api/claims`);
+    const data = await res.json();
+    return data.data || data;
   },
 
   async getDocuments(claimId: string): Promise<Document[]> {
-    const res = await fetch(`${API_BASE}/api/claims/${claimId}/documents`);
-    if (!res.ok) throw new Error("Failed to fetch documents");
-    return res.json();
+    const res = await authenticatedFetch(`${API_BASE}/api/claims/${claimId}/documents`);
+    const data = await res.json();
+    return data.data || data;
   },
 
   async getSession(documentId: string): Promise<SessionData> {
-    const res = await fetch(`${API_BASE}/api/session/${documentId}`);
-    if (!res.ok) throw new Error("Failed to fetch session");
-    return res.json();
+    const res = await authenticatedFetch(`${API_BASE}/api/session/${documentId}`);
+    const data = await res.json();
+    return data.data || data;
   },
 
   async getIssues(claimId: string, documentId: string): Promise<IssueBundle> {
-    const res = await fetch(`${API_BASE}/api/claims/${claimId}/documents/${documentId}/issues`);
-    if (!res.ok) throw new Error("Failed to fetch issues");
-    return res.json();
+    const res = await authenticatedFetch(`${API_BASE}/api/claims/${claimId}/documents/${documentId}/issues`);
+    const data = await res.json();
+    return data.data || data;
   },
 
   async logAudit(audit: AuditLog): Promise<void> {
-    const res = await fetch(`${API_BASE}/api/audit`, {
+    await authenticatedFetch(`${API_BASE}/api/audit`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(audit),
     });
-    if (!res.ok) throw new Error("Failed to log audit");
   },
 
   async uploadDocument(
@@ -125,6 +197,12 @@ export const api = {
       
       xhr.open("POST", `${API_BASE}/api/documents/upload`);
       
+      // Add auth header
+      const token = await getAccessToken();
+      if (token) {
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      }
+      
       onProgress?.(0, "Starting upload...");
       xhr.send(formData);
       
@@ -152,9 +230,9 @@ export const api = {
     const url = documentId 
       ? `${API_BASE}/api/audit?documentId=${documentId}`
       : `${API_BASE}/api/audit`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("Failed to fetch audit logs");
-    return res.json();
+    const res = await authenticatedFetch(url);
+    const data = await res.json();
+    return data.data || data;
   },
 
   // Canonical schema endpoints
@@ -210,19 +288,22 @@ export const api = {
     return res.json();
   },
 
-  async validateCrossDocument(claimId: string): Promise<{ validations: CrossDocumentValidation[]; count: number }> {
+  async validateCrossDocument(claimId: string): Promise<CrossDocumentValidation[]> {
     // Try new endpoint first, fallback to old one
-    let res = await fetch(`${API_BASE}/api/claims/${claimId}/validate`, {
-      method: "POST",
-    });
-    if (!res.ok) {
-      // Fallback to old endpoint
-      res = await fetch(`${API_BASE}/api/claims/${claimId}/validate-cross-document`, {
+    try {
+      const res = await authenticatedFetch(`${API_BASE}/api/claims/${claimId}/validate`, {
         method: "POST",
       });
+      const data = await res.json();
+      return data.validations || data.data?.validations || [];
+    } catch (e) {
+      // Fallback to old endpoint
+      const res = await authenticatedFetch(`${API_BASE}/api/claims/${claimId}/validate-cross-document`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      return data.validations || data.data?.validations || [];
     }
-    if (!res.ok) throw new Error("Failed to validate cross-document consistency");
-    return res.json();
   },
 
   async updateCrossDocumentValidationStatus(
@@ -230,38 +311,30 @@ export const api = {
     status: CrossDocumentValidation["status"],
     resolvedValue?: string
   ): Promise<void> {
-    const res = await fetch(`${API_BASE}/api/cross-document-validations/${validationId}/status`, {
+    await authenticatedFetch(`${API_BASE}/api/cross-document-validations/${validationId}/status`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status, resolved_value: resolvedValue }),
     });
-    if (!res.ok) throw new Error("Failed to update validation status");
   },
 
   async resolveCrossDocValidation(validationId: string, resolvedValue: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/api/validations/${validationId}/resolve`, {
+    await authenticatedFetch(`${API_BASE}/api/validations/${validationId}/resolve`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ resolved_value: resolvedValue }),
     });
-    if (!res.ok) throw new Error("Failed to resolve validation");
   },
 
   async escalateCrossDocValidation(validationId: string, reason: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/api/validations/${validationId}/escalate`, {
+    await authenticatedFetch(`${API_BASE}/api/validations/${validationId}/escalate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reason }),
     });
-    if (!res.ok) throw new Error("Failed to escalate validation");
   },
 
   async saveCorrectionPayload(payload: DocumentCorrectionPayload): Promise<void> {
-    const res = await fetch(`${API_BASE}/api/correction-payload`, {
+    await authenticatedFetch(`${API_BASE}/api/correction-payload`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error("Failed to save correction payload");
   },
 };

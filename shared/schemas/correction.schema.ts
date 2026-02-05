@@ -75,6 +75,8 @@ export type RecommendedAction = z.infer<typeof RecommendedActionSchema>;
  */
 export const CorrectionSchema = z.object({
   id: z.string().uuid(),
+  claim_id: z.string(), // Required: claim ID for referential integrity
+  document_id: z.string().optional(), // Optional: can be derived from evidence.source_document
   type: CorrectionTypeSchema,
   severity: SeveritySchema,
   

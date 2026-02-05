@@ -13,6 +13,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS corrections (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   document_id TEXT NOT NULL,
+  claim_id TEXT NOT NULL,
   type TEXT NOT NULL CHECK (type IN (
     'typo', 'date_error', 'phone_format', 'name_mismatch',
     'address_error', 'numeric_error', 'missing_value',
@@ -31,11 +32,16 @@ CREATE TABLE IF NOT EXISTS corrections (
   form_field_name TEXT,
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'applied', 'rejected', 'manual')),
   applied_at TIMESTAMPTZ,
-  applied_by UUID,
+  applied_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   applied_method TEXT,
-  user_id UUID,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  -- Foreign key constraints
+  CONSTRAINT fk_correction_document FOREIGN KEY (document_id) 
+    REFERENCES documents(document_id) ON DELETE CASCADE,
+  CONSTRAINT fk_correction_claim FOREIGN KEY (claim_id) 
+    REFERENCES claims(claim_id) ON DELETE CASCADE
 );
 
 -- --------------------------------------------
@@ -51,12 +57,15 @@ CREATE TABLE IF NOT EXISTS annotations (
   location JSONB NOT NULL,
   text TEXT,
   color TEXT,
-  related_correction_id UUID,
-  related_validation_id UUID,
-  created_by UUID,
-  user_id UUID,
+  related_correction_id UUID REFERENCES corrections(id) ON DELETE SET NULL,
+  related_validation_id UUID REFERENCES cross_document_validations(id) ON DELETE SET NULL,
+  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  -- Foreign key constraint
+  CONSTRAINT fk_annotation_document FOREIGN KEY (document_id)
+    REFERENCES documents(document_id) ON DELETE CASCADE
 );
 
 -- --------------------------------------------
@@ -81,16 +90,20 @@ CREATE TABLE IF NOT EXISTS cross_document_validations (
   reasoning TEXT,
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'resolved', 'ignored', 'escalated')),
   resolved_value TEXT,
-  resolved_by UUID,
+  resolved_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   resolved_at TIMESTAMPTZ,
   escalation_reason TEXT,
-  user_id UUID,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  -- Foreign key constraint
+  CONSTRAINT fk_validation_claim FOREIGN KEY (claim_id)
+    REFERENCES claims(claim_id) ON DELETE CASCADE
 );
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_corrections_document ON corrections(document_id);
+CREATE INDEX IF NOT EXISTS idx_corrections_claim ON corrections(claim_id);
 CREATE INDEX IF NOT EXISTS idx_corrections_status ON corrections(status);
 CREATE INDEX IF NOT EXISTS idx_corrections_user_id ON corrections(user_id);
 CREATE INDEX IF NOT EXISTS idx_annotations_document ON annotations(document_id);
