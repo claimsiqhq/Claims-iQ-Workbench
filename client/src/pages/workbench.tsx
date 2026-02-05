@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { useNutrientViewer } from "@/hooks/use-nutrient-viewer";
 import { useAuth } from "@/hooks/use-auth";
 import { FixEngine } from "@/lib/fix-engine";
+import { PDFAdapterFactory } from "@/lib/adapters";
 import type { Issue, IssueStatus, Claim, Document, SessionData, ExtractedClaimInfo } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -399,7 +400,9 @@ export default function Workbench() {
     if (!instance) return;
 
     try {
-      const fixEngine = new FixEngine(instance);
+      // Use adapter pattern for product-agnostic PDF processing
+      const adapter = await PDFAdapterFactory.create("nutrient", instance);
+      const fixEngine = new FixEngine(adapter, instance);
       const result = await fixEngine.applyFix(issue);
 
       if (result.success) {

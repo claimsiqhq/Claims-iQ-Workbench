@@ -3,6 +3,9 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { supabaseAdmin, isSupabaseConfigured } from "./supabase";
 import { AuditLogSchema, SessionDataSchema, IssueBundleSchema } from "@shared/schema";
+import { DocumentCorrectionPayloadSchema, CorrectionSchema, AnnotationSchema, CrossDocumentValidationSchema } from "@shared/schemas";
+import { FieldExtractor } from "./services/field-extractor";
+import { CrossDocumentValidator } from "./services/cross-document-validator";
 import jwt from "jsonwebtoken";
 import multer from "multer";
 import { v4 as uuidv4 } from "uuid";
@@ -720,6 +723,203 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to update issue status" });
+    }
+  });
+
+  // Canonical schema endpoints
+  app.post("/api/documents/:documentId/corrections", async (req, res) => {
+    try {
+      const sanitizedDocId = sanitizeId(req.params.documentId);
+      if (!sanitizedDocId) {
+        return res.status(400).json({ error: "Invalid document ID" });
+      }
+
+      const correction = CorrectionSchema.parse(req.body);
+      await storage.saveCorrection(correction);
+      res.json({ success: true, correction });
+    } catch (error) {
+      res.status(400).json({ error: "Invalid correction data" });
+    }
+  });
+
+  app.get("/api/documents/:documentId/corrections", async (req, res) => {
+    try {
+      const sanitizedDocId = sanitizeId(req.params.documentId);
+      if (!sanitizedDocId) {
+        return res.status(400).json({ error: "Invalid document ID" });
+      }
+
+      const corrections = await storage.getCorrections(sanitizedDocId);
+      res.json(corrections);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch corrections" });
+    }
+  });
+
+  app.patch("/api/corrections/:correctionId/status", async (req, res) => {
+    try {
+      const sanitizedId = sanitizeId(req.params.correctionId);
+      if (!sanitizedId) {
+        return res.status(400).json({ error: "Invalid correction ID" });
+      }
+
+      const { status } = req.body;
+      if (!status || !['pending', 'applied', 'rejected', 'manual'].includes(status)) {
+        return res.status(400).json({ error: "Invalid status" });
+      }
+
+      await storage.updateCorrectionStatus(sanitizedId, status);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update correction status" });
+    }
+  });
+
+  app.post("/api/documents/:documentId/annotations", async (req, res) => {
+    try {
+      const sanitizedDocId = sanitizeId(req.params.documentId);
+      if (!sanitizedDocId) {
+        return res.status(400).json({ error: "Invalid document ID" });
+      }
+
+      const annotation = AnnotationSchema.parse(req.body);
+      await storage.saveAnnotation(annotation);
+      res.json({ success: true, annotation });
+    } catch (error) {
+      res.status(400).json({ error: "Invalid annotation data" });
+    }
+  });
+
+  app.get("/api/documents/:documentId/annotations", async (req, res) => {
+    try {
+      const sanitizedDocId = sanitizeId(req.params.documentId);
+      if (!sanitizedDocId) {
+        return res.status(400).json({ error: "Invalid document ID" });
+      }
+
+      const annotations = await storage.getAnnotations(sanitizedDocId);
+      res.json(annotations);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch annotations" });
+    }
+  });
+
+  app.delete("/api/annotations/:annotationId", async (req, res) => {
+    try {
+      const sanitizedId = sanitizeId(req.params.annotationId);
+      if (!sanitizedId) {
+        return res.status(400).json({ error: "Invalid annotation ID" });
+      }
+
+      await storage.deleteAnnotation(sanitizedId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete annotation" });
+    }
+  });
+
+  app.get("/api/claims/:claimId/cross-document-validations", async (req, res) => {
+    try {
+      const sanitizedClaimId = sanitizeId(req.params.claimId);
+      if (!sanitizedClaimId) {
+        return res.status(400).json({ error: "Invalid claim ID" });
+      }
+
+      const validations = await storage.getCrossDocumentValidations(sanitizedClaimId);
+      res.json(validations);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch cross-document validations" });
+    }
+  });
+
+  app.post("/api/claims/:claimId/cross-document-validations", async (req, res) => {
+    try {
+      const sanitizedClaimId = sanitizeId(req.params.claimId);
+      if (!sanitizedClaimId) {
+        return res.status(400).json({ error: "Invalid claim ID" });
+      }
+
+      const validation = CrossDocumentValidationSchema.parse(req.body);
+      await storage.saveCrossDocumentValidation(validation);
+      res.json({ success: true, validation });
+    } catch (error) {
+      res.status(400).json({ error: "Invalid validation data" });
+    }
+  });
+
+  app.patch("/api/cross-document-validations/:validationId/status", async (req, res) => {
+    try {
+      const sanitizedId = sanitizeId(req.params.validationId);
+      if (!sanitizedId) {
+        return res.status(400).json({ error: "Invalid validation ID" });
+      }
+
+      const { status, resolved_value } = req.body;
+      if (!status || !['pending', 'resolved', 'ignored'].includes(status)) {
+        return res.status(400).json({ error: "Invalid status" });
+      }
+
+      await storage.updateCrossDocumentValidationStatus(sanitizedId, status, resolved_value);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update validation status" });
+    }
+  });
+
+  app.post("/api/correction-payload", async (req, res) => {
+    try {
+      const payload = DocumentCorrectionPayloadSchema.parse(req.body);
+      await storage.saveCorrectionPayload(payload);
+      res.json({ success: true, payload });
+    } catch (error) {
+      res.status(400).json({ error: "Invalid correction payload", details: error instanceof Error ? error.message : "Parse error" });
+    }
+  });
+
+  app.post("/api/claims/:claimId/validate-cross-document", async (req, res) => {
+    try {
+      const sanitizedClaimId = sanitizeId(req.params.claimId);
+      if (!sanitizedClaimId) {
+        return res.status(400).json({ error: "Invalid claim ID" });
+      }
+
+      // Get all documents for this claim
+      const documents = await storage.getDocumentsByClaim(sanitizedClaimId);
+      
+      if (documents.length < 2) {
+        return res.json({ validations: [], message: "Need at least 2 documents to validate" });
+      }
+
+      const extractor = new FieldExtractor();
+      const validator = new CrossDocumentValidator();
+
+      // Extract fields from each document
+      const extractedDocs = await Promise.all(
+        documents.map(async (doc) => {
+          // In a real implementation, you'd extract text from the PDF
+          // For now, we'll use a placeholder
+          const content = ""; // TODO: Extract PDF text content
+          const fields = await extractor.extractFromDocument(doc.documentId, content);
+          return {
+            document_id: doc.documentId,
+            document_name: doc.name,
+            fields,
+          };
+        })
+      );
+
+      // Validate cross-document consistency
+      const validations = await validator.validateClaim(sanitizedClaimId, extractedDocs);
+
+      // Save validations
+      for (const validation of validations) {
+        await storage.saveCrossDocumentValidation(validation);
+      }
+
+      res.json({ validations, count: validations.length });
+    } catch (error) {
+      console.error("Cross-document validation error:", error);
+      res.status(500).json({ error: "Failed to validate cross-document consistency" });
     }
   });
 

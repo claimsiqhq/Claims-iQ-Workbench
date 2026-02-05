@@ -1,4 +1,5 @@
 import type { Claim, Document, IssueBundle, AuditLog, SessionData, ExtractedClaimInfo } from "@shared/schema";
+import type { Correction, Annotation, CrossDocumentValidation, DocumentCorrectionPayload } from "@shared/schemas";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -154,5 +155,88 @@ export const api = {
     const res = await fetch(url);
     if (!res.ok) throw new Error("Failed to fetch audit logs");
     return res.json();
+  },
+
+  // Canonical schema endpoints
+  async getCorrections(documentId: string): Promise<Correction[]> {
+    const res = await fetch(`${API_BASE}/api/documents/${documentId}/corrections`);
+    if (!res.ok) throw new Error("Failed to fetch corrections");
+    return res.json();
+  },
+
+  async saveCorrection(documentId: string, correction: Correction): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/documents/${documentId}/corrections`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(correction),
+    });
+    if (!res.ok) throw new Error("Failed to save correction");
+  },
+
+  async updateCorrectionStatus(correctionId: string, status: Correction["status"]): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/corrections/${correctionId}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) throw new Error("Failed to update correction status");
+  },
+
+  async getAnnotations(documentId: string): Promise<Annotation[]> {
+    const res = await fetch(`${API_BASE}/api/documents/${documentId}/annotations`);
+    if (!res.ok) throw new Error("Failed to fetch annotations");
+    return res.json();
+  },
+
+  async saveAnnotation(documentId: string, annotation: Annotation): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/documents/${documentId}/annotations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(annotation),
+    });
+    if (!res.ok) throw new Error("Failed to save annotation");
+  },
+
+  async deleteAnnotation(annotationId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/annotations/${annotationId}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Failed to delete annotation");
+  },
+
+  async getCrossDocumentValidations(claimId: string): Promise<CrossDocumentValidation[]> {
+    const res = await fetch(`${API_BASE}/api/claims/${claimId}/cross-document-validations`);
+    if (!res.ok) throw new Error("Failed to fetch cross-document validations");
+    return res.json();
+  },
+
+  async validateCrossDocument(claimId: string): Promise<{ validations: CrossDocumentValidation[]; count: number }> {
+    const res = await fetch(`${API_BASE}/api/claims/${claimId}/validate-cross-document`, {
+      method: "POST",
+    });
+    if (!res.ok) throw new Error("Failed to validate cross-document consistency");
+    return res.json();
+  },
+
+  async updateCrossDocumentValidationStatus(
+    validationId: string,
+    status: CrossDocumentValidation["status"],
+    resolvedValue?: string
+  ): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/cross-document-validations/${validationId}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, resolved_value: resolvedValue }),
+    });
+    if (!res.ok) throw new Error("Failed to update validation status");
+  },
+
+  async saveCorrectionPayload(payload: DocumentCorrectionPayload): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/correction-payload`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error("Failed to save correction payload");
   },
 };
