@@ -697,12 +697,12 @@ export default function Workbench() {
     
     try {
       const result = await api.validateCrossDocument(selectedClaimId);
-      setCrossDocValidations(result.validations || result);
+      setCrossDocValidations(result);
       queryClient.invalidateQueries({ queryKey: ["crossDocValidations", selectedClaimId] });
       
       toast({
         title: "Validation Complete",
-        description: `Found ${Array.isArray(result) ? result.length : result.count || 0} inconsistencies`,
+        description: `Found ${result.length} inconsistencies`,
       });
     } catch (error) {
       toast({

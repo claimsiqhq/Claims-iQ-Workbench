@@ -54,7 +54,7 @@ export const CrossDocumentValidationSchema = z.object({
   reasoning: z.string(),
   
   // Status
-  status: z.enum(["pending", "resolved", "ignored"]).default("pending"),
+  status: z.enum(["pending", "resolved", "ignored", "escalated"]).default("pending"),
   resolved_value: z.string().optional(),
   resolved_by: z.string().optional(),
   resolved_at: z.string().datetime().optional(),

@@ -23,6 +23,7 @@ export class APIError extends Error {
  * Get access token from Supabase session
  */
 async function getAccessToken(): Promise<string | null> {
+  if (!supabase) return null;
   try {
     const { data: { session } } = await supabase.auth.getSession();
     return session?.access_token || null;
@@ -267,13 +268,13 @@ export const api = {
     return res.json();
   },
 
-  async saveAnnotation(documentId: string, annotation: Annotation): Promise<void> {
-    const res = await fetch(`${API_BASE}/api/documents/${documentId}/annotations`, {
+  async saveAnnotation(documentId: string, annotation: Annotation): Promise<Annotation> {
+    const res = await authenticatedFetch(`${API_BASE}/api/documents/${documentId}/annotations`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(annotation),
     });
-    if (!res.ok) throw new Error("Failed to save annotation");
+    const data = await res.json();
+    return data.data || data;
   },
 
   async deleteAnnotation(annotationId: string): Promise<void> {
