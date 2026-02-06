@@ -1,123 +1,43 @@
-# Claims File Correction Workbench
+# Claims IQ Workbench
 
 ## Overview
-
-This is a "Human-in-the-loop" document processing workbench for reviewing and correcting issues in PDF claim documents. The application integrates with Nutrient Web SDK and Document Engine to provide PDF viewing, issue detection visualization, and correction workflows. Users can load PDF documents, view detected issues highlighted on the document, and apply corrections through auto-apply, manual editing, or rejection workflows.
+Claims IQ Workbench is a human-in-the-loop document processing application designed to review and correct issues within PDF insurance claim documents. It allows users to upload PDF claim files, optionally with correction payloads, and leverages OpenAI's vision AI to extract structured data. The workbench features PDF viewing, highlights detected issues as annotations, and provides workflows for applying, manually editing, or rejecting corrections. All actions are audit-logged for compliance. The project is production-ready, featuring a Supabase backend, OpenAI-powered PDF parsing, canonical correction schemas, cross-document validation, and full authentication. The business vision is to streamline insurance claim processing, reduce manual errors, and improve efficiency for insurance professionals.
 
 ## User Preferences
-
-Preferred communication style: Simple, everyday language.
+- Preferred communication style: Simple, everyday language
+- Prefers manual testing over automated testing subagent
+- Documents should auto-load after upload (no manual "Load" step)
 
 ## System Architecture
 
-### Frontend Architecture
-- **Framework**: React 19 with Vite as the build tool
-- **Language**: TypeScript throughout
-- **Styling**: Tailwind CSS with Radix UI primitives (shadcn/ui component library)
-- **State Management**: TanStack Query for server state, React useState for local state
-- **Routing**: Wouter for lightweight client-side routing
-- **PDF Viewing**: Nutrient Web SDK (`@nutrient-sdk/viewer`) loaded via CDN mode
-- **Authentication**: Supabase Auth with email/password login
-
-### Backend Architecture
-- **Runtime**: Node.js with Express
-- **API Style**: RESTful JSON APIs
-- **Database**: Supabase (PostgreSQL) for claims, documents, issues, and audit logs
-- **File Storage**: Supabase Storage for PDF files (with local fallback)
-- **Authentication**: Supabase Auth + JWT (RS256) for Document Engine sessions
-- **File Upload**: Multer middleware for multipart form handling
+### Tech Stack
+The application is built with React 19 and TypeScript for the frontend, using Vite 7 for building, Tailwind CSS 4 with shadcn/ui for styling, TanStack Query v5 for server state, and Wouter for routing. The Nutrient Web SDK is used for PDF viewing. The backend runs on Node.js with Express 5, utilizing Supabase (PostgreSQL) for the database and Supabase Storage for file storage. Authentication is handled by Supabase Auth. OpenAI's gpt-4o vision API, accessed via Replit AI Integrations, powers AI/OCR functionalities. Schema validation is done using Zod and AJV.
 
 ### Key Design Patterns
-- **Fix Engine with Fallback Strategy**: Corrections attempt strategies in order: form field → content edit → redaction overlay
-- **Issue Status Workflow**: Issues transition through OPEN → APPLIED | MANUAL | REJECTED states
-- **Audit Logging**: All correction actions are logged with before/after states for compliance
-- **Non-destructive Editing**: Original PDFs are never overwritten; edits are tracked separately
-- **Graceful Fallback**: When Supabase is not configured, falls back to local file storage
+- **Adapter Pattern**: PDF viewer operations are abstracted, allowing for flexible integration of different PDF processors.
+- **Fix Engine with Fallback Strategy**: Corrections are applied through a cascading strategy: form field fill → content edit → redaction overlay.
+- **Dual Location Strategy**: Content is located using precise bounding box coordinates with a fallback to search-text matching for resilience.
+- **Canonical Schemas**: Data contracts for corrections, annotations, and validations are defined using Zod schemas, shared across frontend and backend.
+- **Repository Pattern**: Database operations are abstracted behind a typed interface, with Supabase as the primary persistence layer and local filesystem as a fallback.
+- **Non-destructive Editing**: Original PDFs are preserved; all changes are tracked as separate records.
+- **Audit Logging**: All correction actions are logged with detailed before/after states, user ID, and timestamps for compliance.
 
-### Directory Structure
-- `/client/src/` - React frontend application
-- `/server/` - Express backend with routes, storage, and static serving
-- `/shared/` - Shared TypeScript schemas and types (Zod + Drizzle)
-- `/supabase/` - Supabase SQL schema for database setup
-- `/data/` - Runtime data storage (local fallback)
-- `/storage/` - Uploaded PDF files (local fallback)
-
-### Data Flow
-1. Frontend fetches claims list and documents from backend
-2. Backend queries Supabase database (or local storage as fallback)
-3. Session endpoint generates JWT tokens for Document Engine authentication
-4. Issues are loaded per document and visualized as annotations on the PDF
-5. Corrections trigger audit logs stored in Supabase
-6. PDFs are stored in Supabase Storage bucket
-
-## Supabase Integration
-
-### Setup Instructions
-1. Create a Supabase project at https://supabase.com
-2. Add the following secrets to your Replit project:
-   - `VITE_SUPABASE_URL` - Your Supabase project URL
-   - `VITE_SUPABASE_ANON_KEY` - Public anon key for frontend auth
-   - `SUPABASE_URL` - Same as VITE_SUPABASE_URL
-   - `SUPABASE_SERVICE_ROLE_KEY` - Service role key for backend operations
-3. Run the SQL schema in Supabase SQL Editor:
-   - Open `supabase/schema.sql`
-   - Copy and paste into Supabase SQL Editor
-   - Execute to create tables and storage bucket
-
-### Database Schema
-- **claims** - Claim records with claim_id, policy_number, status, etc.
-- **documents** - Document metadata linked to claims
-- **issues** - Detected issues with severity, location, and status
-- **audit_logs** - Compliance audit trail for all corrections
-- **correction_schemas** - Uploaded JSON validation schemas (persisted in DB)
-- **corrections** - Canonical corrections per document
-- **annotations** - Visual annotations on documents
-- **cross_document_validations** - Cross-document consistency checks
-
-### Schema Storage
-- Correction validation schemas are stored in the `correction_schemas` table in the database
-- Uses direct PostgreSQL connection (pg Pool) via `server/schema-store.ts`
-- Falls back to filesystem (`server/schemas/`) when DB is not available
-- Legacy filesystem schemas (`active_schema.json`) are auto-migrated to DB on first access
-- Default schema is `server/schemas/claimsiq_correction_schema.json`
-
-### Storage
-- **documents** bucket - Stores uploaded PDF files
-- Files organized by user_id for Row Level Security
-
-### Authentication
-- Email/password authentication via Supabase Auth
-- Row Level Security (RLS) policies restrict data access by user
-- Login page at `/login`
-- **Required authentication**: Workbench requires sign-in when auth is configured
-
-### User Settings (localStorage)
-- **Notification preferences**: Toggle notifications for correction applied/rejected
-- **Display settings**: Default issue filter, items per page
-- **Export options**: Download audit logs (JSON), export issues report (CSV)
-
-## External Dependencies
-
-### PDF Processing
-- **Nutrient Web SDK**: Client-side PDF viewer with annotation and editing capabilities
-- **Nutrient Document Engine**: Optional server-backed PDF processing with JWT authentication
+### PDF Processing Pipeline
+The upload flow involves receiving PDFs and optional correction JSON, converting PDFs to PNGs using `pdftoppm`, sending images to OpenAI gpt-4o vision API for structured data extraction, and then storing claim/document records in Supabase. Issues are created from the correction JSON, and the document is auto-loaded for correction workflow. OpenAI `gpt-4o` is used for high-detail extraction and low-detail OCR. The correction workflow involves loading issues, allowing auto-apply, manual edit, or rejection of corrections, with all actions generating audit log entries.
 
 ### Database
-- **Supabase**: Cloud PostgreSQL database with auth, storage, and real-time capabilities
-- **Fallback**: Local filesystem storage when Supabase is not configured
+Supabase is used for the database, including tables for `claims`, `documents`, `issues`, `corrections`, `annotations`, `audit_logs`, `correction_schemas`, and `cross_document_validations`. Row Level Security (RLS) restricts data access. Correction validation schemas are stored in the `correction_schemas` table and managed by `server/schema-store.ts`, with a filesystem fallback. Supabase Storage is used for uploaded PDFs, with a local filesystem fallback.
 
-### Environment Variables Required
-- `VITE_SUPABASE_URL` - Supabase project URL (frontend)
-- `VITE_SUPABASE_ANON_KEY` - Supabase anon key (frontend)
-- `SUPABASE_URL` - Supabase project URL (backend)
-- `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (backend)
-- `DOC_ENGINE_URL` - Nutrient Document Engine URL (optional)
-- `DOC_ENGINE_API_TOKEN` - Document Engine API token (optional)
-- `JWT_PRIVATE_KEY_PEM` - RSA private key for JWT signing (optional)
-- `JWT_EXPIRES_IN_SECONDS` - JWT expiration time (optional)
-- `JWT_PERMISSIONS` - Comma-separated permissions for Document Engine (optional)
-- `PUBLIC_BASE_URL` - Public URL for file access (optional)
+### API Routes
+Core API endpoints handle health checks, claim management, document uploads, correction and annotation management, cross-document validation, audit logging, and serving PDF files. All API routes require Supabase authentication. Rate limiting is implemented per IP.
 
-### Third-Party Services
-- **Supabase**: Database, authentication, and file storage
-- **Nutrient Document Engine**: Optional PDF processing backend
+### Frontend Pages
+The main interface is the Workbench, with additional pages for Login, Profile, and Settings. The Workbench UI features a top bar for navigation, a left panel for issue lists, a central Nutrient PDF viewer, and a toggleable right panel for annotations or cross-document validation. User settings are stored in localStorage for notification preferences, display settings, and export options.
+
+## External Dependencies
+- **Supabase**: Provides database (PostgreSQL), authentication, and file storage services.
+- **Nutrient Web SDK**: Used for displaying PDFs and managing annotations within the application.
+- **OpenAI**: Specifically the `gpt-4o` vision API, integrated via Replit AI Integrations, for structured data extraction and OCR from PDF documents.
+- **Zod**: A TypeScript-first schema declaration and validation library.
+- **AJV**: Another JSON schema validator used for validating correction payloads.
+- **pdftoppm**: A system utility for converting PDF pages into PNG images, used as part of the PDF processing pipeline.
