@@ -163,21 +163,26 @@ export class SupabaseStorage implements IStorage {
     let dataQuery = supabaseAdmin.from('claims').select('*');
     
     if (isRealUser) {
-      countQuery = countQuery.eq('user_id', userId);
-      dataQuery = dataQuery.eq('user_id', userId);
+      countQuery = countQuery.or(`user_id.eq.${userId},user_id.is.null`);
+      dataQuery = dataQuery.or(`user_id.eq.${userId},user_id.is.null`);
     }
     
     const [countResult, dataResult] = await Promise.all([
       countQuery,
       dataQuery
-        .order(pagination?.sortBy || 'created_at', { ascending: pagination?.sortOrder === 'asc' })
+        .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1)
     ]);
     
+    if (countResult.error) {
+      console.error('[storage] Error counting claims:', countResult.error);
+    }
     if (dataResult.error) {
-      console.error('Error fetching claims:', dataResult.error);
+      console.error('[storage] Error fetching claims:', dataResult.error);
       return { data: [], total: 0 };
     }
+    
+    console.log(`[storage] getClaimsPaginated: userId=${userId}, isRealUser=${isRealUser}, count=${countResult.count}, rows=${dataResult.data?.length}`);
     
     const claims = (dataResult.data || []).map(row => ({
       claimId: row.claim_id,

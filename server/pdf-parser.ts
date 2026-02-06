@@ -1,18 +1,13 @@
-import * as pdfParseModule from "pdf-parse";
-const pdfParse = (pdfParseModule as any).default || pdfParseModule;
-
 import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
+import { execSync } from "child_process";
+import os from "os";
 
-function getOpenAI(): OpenAI | null {
-  if (!process.env.OPENAI_API_KEY) {
-    return null;
-  }
-  return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
-}
+const openai = new OpenAI({
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+});
 
 export interface ExtractedClaimInfo {
   claimId?: string;
@@ -23,79 +18,99 @@ export interface ExtractedClaimInfo {
   claimAmount?: string;
   status?: string;
   adjusterName?: string;
-  [key: string]: any; // Allow additional fields
+  [key: string]: any;
 }
 
-/**
- * Extract text from the first N pages of a PDF
- */
-export async function extractPdfText(pdfPath: string, maxPages: number = 3): Promise<string> {
-  const dataBuffer = fs.readFileSync(pdfPath);
-  const data = await pdfParse(dataBuffer);
-  
-  // If PDF has fewer pages than maxPages, return all text
-  // Otherwise, we need to extract text from first pages only
-  // Note: pdf-parse doesn't support page-by-page extraction easily,
-  // so we'll extract all and let OpenAI handle it, or limit the text length
-  const fullText = data.text;
-  
-  // Approximate: split by pages (if we can detect page breaks)
-  // For now, take first ~5000 characters which should cover first few pages
-  const textLength = Math.min(fullText.length, maxPages * 2000);
-  return fullText.substring(0, textLength);
+function convertPdfPagesToImages(pdfPath: string, maxPages: number = 3): string[] {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pdf-pages-"));
+  const outputPrefix = path.join(tmpDir, "page");
+
+  try {
+    execSync(
+      `pdftoppm -png -r 200 -l ${maxPages} "${pdfPath}" "${outputPrefix}"`,
+      { timeout: 30000 }
+    );
+
+    const files = fs.readdirSync(tmpDir)
+      .filter(f => f.endsWith(".png"))
+      .sort()
+      .slice(0, maxPages);
+
+    return files.map(f => path.join(tmpDir, f));
+  } catch (error) {
+    console.error("[pdf-parser] Error converting PDF to images:", error);
+    return [];
+  }
 }
 
-/**
- * Parse PDF text with OpenAI to extract structured claim information
- */
-export async function parseClaimDocument(pdfText: string): Promise<ExtractedClaimInfo> {
-  const openai = getOpenAI();
-  if (!openai) {
-    console.warn("OPENAI_API_KEY not set, using fallback claim ID generation");
-    // Return fallback with generated claim ID
+function imageToBase64(imagePath: string): string {
+  const buffer = fs.readFileSync(imagePath);
+  return buffer.toString("base64");
+}
+
+function cleanupImages(imagePaths: string[]): void {
+  for (const p of imagePaths) {
+    try { fs.unlinkSync(p); } catch {}
+  }
+  if (imagePaths.length > 0) {
+    const dir = path.dirname(imagePaths[0]);
+    try { fs.rmdirSync(dir); } catch {}
+  }
+}
+
+export async function parseClaimDocument(imagePaths: string[]): Promise<ExtractedClaimInfo> {
+  if (imagePaths.length === 0) {
+    console.warn("[pdf-parser] No page images available, using fallback claim ID");
     return {
       claimId: `CLM-${Date.now().toString().slice(-6)}`,
       status: "Unknown",
     };
   }
 
-  const prompt = `You are an expert at extracting structured information from insurance claim documents. 
-Analyze the following text extracted from the first few pages of a claim document and extract all relevant information.
-
-Extract the following fields if present:
-- claimId or Claim ID (format: CLM-XXX, CLM-XXXX, or similar)
-- claimNumber or Claim Number
-- policyNumber or Policy Number
-- insuredName or Insured Name
-- dateOfLoss or Date of Loss
-- claimAmount or Claim Amount
-- status or Claim Status
-- adjusterName or Adjuster Name
-- Any other relevant claim information
-
-Return a JSON object with the extracted fields. If a field is not found, omit it from the response.
-Generate a claimId in the format "CLM-XXX" if one is not found but other claim information exists.
-
-Text to analyze:
-${pdfText.substring(0, 8000)} // Limit to avoid token limits
-
-Return ONLY valid JSON, no additional text or explanation.`;
+  const imageContents: OpenAI.Chat.Completions.ChatCompletionContentPart[] = imagePaths.map(p => ({
+    type: "image_url" as const,
+    image_url: {
+      url: `data:image/png;base64,${imageToBase64(p)}`,
+      detail: "high" as const,
+    },
+  }));
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Using mini for cost efficiency
+      model: "gpt-4o",
       messages: [
         {
           role: "system",
-          content: "You are a helpful assistant that extracts structured data from insurance claim documents. Always return valid JSON only.",
+          content: `You are an expert at extracting structured information from insurance claim documents.
+You will be given images of pages from a PDF claim document. Analyze them carefully and extract all relevant information.
+
+Extract the following fields if present:
+- claimId: The claim ID or claim number (format varies: CLM-XXX, numeric, etc.)
+- claimNumber: The claim number (may be same as claimId)
+- policyNumber: The policy number
+- insuredName: The insured person's full name
+- dateOfLoss: The date of loss (YYYY-MM-DD format)
+- claimAmount: The total claim amount
+- status: The claim status (open, closed, pending, etc.)
+- adjusterName: The adjuster's name
+
+Return a JSON object with the extracted fields. If a field is not found, omit it.
+If you find a claim number but no explicit "Claim ID", use the claim number as claimId.
+Generate a claimId in the format "CLM-XXXXXX" only if no claim identifier is found at all.
+
+Return ONLY valid JSON, no additional text or explanation.`,
         },
         {
           role: "user",
-          content: prompt,
+          content: [
+            { type: "text", text: "Extract all claim information from these document pages:" },
+            ...imageContents,
+          ],
         },
       ],
       response_format: { type: "json_object" },
-      temperature: 0.1, // Low temperature for consistent extraction
+      temperature: 0.1,
+      max_tokens: 2048,
     });
 
     const content = response.choices[0]?.message?.content;
@@ -104,22 +119,19 @@ Return ONLY valid JSON, no additional text or explanation.`;
     }
 
     const parsed = JSON.parse(content);
-    
-    // Ensure we have a claimId - generate one if missing
+
     if (!parsed.claimId && (parsed.claimNumber || parsed.policyNumber)) {
-      // Generate claim ID from claim number or policy number
       const source = parsed.claimNumber || parsed.policyNumber || "UNKNOWN";
-      const cleanSource = source.replace(/[^A-Z0-9]/g, "").toUpperCase();
-      parsed.claimId = `CLM-${cleanSource.substring(0, 6)}`;
+      const cleanSource = source.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+      parsed.claimId = cleanSource.substring(0, 12) || `CLM-${Date.now().toString().slice(-6)}`;
     } else if (!parsed.claimId) {
-      // Fallback: generate from timestamp
       parsed.claimId = `CLM-${Date.now().toString().slice(-6)}`;
     }
 
+    console.log("[pdf-parser] OpenAI extracted claim info:", JSON.stringify(parsed, null, 2));
     return parsed as ExtractedClaimInfo;
   } catch (error) {
-    console.error("Error parsing claim document with OpenAI:", error);
-    // Return a fallback with generated claim ID
+    console.error("[pdf-parser] Error parsing claim document with OpenAI:", error);
     return {
       claimId: `CLM-${Date.now().toString().slice(-6)}`,
       status: "Unknown",
@@ -127,10 +139,58 @@ Return ONLY valid JSON, no additional text or explanation.`;
   }
 }
 
-/**
- * Parse a PDF file and extract claim information
- */
+export async function extractPdfText(pdfPath: string, maxPages: number = 3): Promise<string> {
+  const imagePaths = convertPdfPagesToImages(pdfPath, maxPages);
+  if (imagePaths.length === 0) {
+    return "";
+  }
+
+  try {
+    const imageContents: OpenAI.Chat.Completions.ChatCompletionContentPart[] = imagePaths.map(p => ({
+      type: "image_url" as const,
+      image_url: {
+        url: `data:image/png;base64,${imageToBase64(p)}`,
+        detail: "low" as const,
+      },
+    }));
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "You are a document OCR assistant. Extract all visible text from the provided document page images. Return the raw text content only, preserving the original layout as much as possible.",
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Extract all text from these document pages:" },
+            ...imageContents,
+          ],
+        },
+      ],
+      max_tokens: 4096,
+      temperature: 0,
+    });
+
+    return response.choices[0]?.message?.content || "";
+  } catch (error) {
+    console.error("[pdf-parser] Error extracting text with OpenAI:", error);
+    return "";
+  } finally {
+    cleanupImages(imagePaths);
+  }
+}
+
 export async function parsePdfFile(pdfPath: string): Promise<ExtractedClaimInfo> {
-  const text = await extractPdfText(pdfPath, 3); // Extract first 3 pages
-  return await parseClaimDocument(text);
+  console.log("[pdf-parser] Converting PDF pages to images for OpenAI vision analysis...");
+  const imagePaths = convertPdfPagesToImages(pdfPath, 3);
+  console.log(`[pdf-parser] Converted ${imagePaths.length} pages to images`);
+
+  try {
+    const result = await parseClaimDocument(imagePaths);
+    return result;
+  } finally {
+    cleanupImages(imagePaths);
+  }
 }
