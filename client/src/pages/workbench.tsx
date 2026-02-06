@@ -571,6 +571,24 @@ function Workbench() {
     });
   };
 
+  const handleResetIssue = (issue: Issue) => {
+    setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "OPEN"));
+
+    auditMutation.mutate({
+      claimId: selectedClaimId,
+      documentId: selectedDocumentId,
+      issueId: issue.issueId,
+      action: "reset",
+      user: username,
+      ts: new Date().toISOString(),
+    });
+
+    toast({
+      title: "Issue Reset",
+      description: "Back to open — you can now apply the suggested fix",
+    });
+  };
+
   // Annotation handlers
   const handleCreateAnnotation = async (annotation: Annotation) => {
     if (!selectedDocumentId) return;
@@ -1305,6 +1323,14 @@ function Workbench() {
                           </Button>
                           <Button variant="outline" size="sm" className="h-7 w-7 p-0 shrink-0" onClick={(e) => { e.stopPropagation(); handleReject(issue); }} data-testid={`button-reject-${issue.issueId}`} title="Reject">
                             <XCircle className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+
+                      {(status === "MANUAL" || status === "APPLIED" || status === "REJECTED") && (
+                        <div className="flex gap-1.5 flex-wrap">
+                          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={(e) => { e.stopPropagation(); handleResetIssue(issue); }} data-testid={`button-reset-${issue.issueId}`}>
+                            <ChevronRight className="h-3 w-3 mr-1 rotate-180 shrink-0" /> Reset to Open
                           </Button>
                         </div>
                       )}
