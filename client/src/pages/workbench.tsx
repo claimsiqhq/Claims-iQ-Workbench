@@ -331,10 +331,32 @@ function Workbench() {
         try {
           await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for viewer to be ready
           
+          // Check if instance is still available
+          if (!instance) {
+            console.warn("Instance no longer available");
+            return;
+          }
+          
           const Annotations = await instance.Annotations;
           const Geometry = await instance.Geometry;
           
-          console.log("Available annotation types:", Object.keys(Annotations));
+          // Validate that Annotations and Geometry are available
+          if (!Annotations) {
+            console.error("Annotations module not available from instance");
+            return;
+          }
+          if (!Geometry) {
+            console.error("Geometry module not available from instance");
+            return;
+          }
+          
+          // Safely log available annotation types
+          try {
+            const annotationKeys = Object.keys(Annotations);
+            console.log("Available annotation types:", annotationKeys);
+          } catch (err) {
+            console.warn("Could not log annotation types:", err);
+          }
           
           for (const issue of issueBundle.issues) {
             if (issueAnnotations.has(issue.issueId) || !issue.rect) continue;
@@ -545,8 +567,23 @@ function Workbench() {
         // Create annotation if it doesn't exist
         try {
           console.log(`🔵 Attempting to create annotation for issue ${issue.issueId}...`);
+          
+          // Validate instance is still available
+          if (!instance) {
+            throw new Error("Instance no longer available");
+          }
+          
           const Annotations = await instance.Annotations;
           const Geometry = await instance.Geometry;
+          
+          // Validate modules are available
+          if (!Annotations) {
+            throw new Error("Annotations module not available");
+          }
+          if (!Geometry) {
+            throw new Error("Geometry module not available");
+          }
+          
           const colorObj = await getIssueColor(issue.severity);
           
           if (!colorObj) {
