@@ -71,14 +71,14 @@ export class NutrientAdapter implements PDFProcessorAdapter {
       }
     }
     
-    if (!this.Annotations || !this.Geometry) {
-      console.warn("⚠️ NutrientAdapter: Annotations or Geometry modules not fully loaded. Some features may fail.", {
+    if (!this.Annotations || !this.Geometry || !this.Color) {
+      console.warn("⚠️ NutrientAdapter: Modules not fully loaded.", {
         hasAnnotations: !!this.Annotations,
         hasGeometry: !!this.Geometry,
         hasColor: !!this.Color
       });
     } else {
-      console.log("Available annotation types:", Object.keys(this.Annotations).slice(0, 10));
+      console.log("✅ NutrientAdapter: All modules loaded (Annotations, Geometry, Color)");
     }
   }
 
@@ -559,6 +559,7 @@ export class NutrientAdapter implements PDFProcessorAdapter {
     }
     
     // Fallback if Color class not available (though it should be)
+    console.warn("⚠️ NutrientAdapter: Color class missing in hexToColor");
     return { r, g, b };
   }
 

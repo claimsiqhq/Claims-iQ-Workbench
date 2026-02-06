@@ -412,16 +412,18 @@ function Workbench() {
               
               const geometryRect = new Geometry.Rect(rect);
               
-              // Use plain object format like the adapter does (not Color instance)
-              let color = colorObj; // { r, g, b } format with normalized values
+              // Ensure we have a Color instance
+              let color = colorObj;
+              const ColorClass = NutrientViewer?.Color || (pdfAdapter as any)?.Color;
               
-              // If using global module, wrap in Color instance
-              if (NutrientViewer && NutrientViewer.Color) {
+              if (ColorClass) {
                 try {
-                  color = new NutrientViewer.Color(colorObj);
+                  color = new ColorClass(colorObj);
                 } catch (e) {
                   console.warn("Failed to create Color instance:", e);
                 }
+              } else {
+                console.warn("⚠️ Color class not available for annotation");
               }
               
               console.log(`Creating highlight annotation for issue ${issue.issueId}:`, {
@@ -438,7 +440,7 @@ function Workbench() {
                 annotation = new Annotations.HighlightAnnotation({
                   pageIndex: issue.pageIndex,
                   rects: [geometryRect],
-                  color: color, // Plain { r, g, b } object
+                  color: color,
                 });
               } catch (e) {
                 console.warn("HighlightAnnotation failed in drawAnnotations, falling back to RectangleAnnotation", e);
@@ -476,22 +478,20 @@ function Workbench() {
   }, [instance, issueBundle, isDocumentLoaded, pdfAdapter]);
 
   const getIssueColor = async (severity: string): Promise<{ r: number; g: number; b: number } | null> => {
-    // Determine RGB values based on severity (0-255 range, then normalize to 0-1)
-    // Nutrient expects colors in { r, g, b } format with normalized values (0-1)
+    // Determine RGB values based on severity (0-255 range)
+    // Nutrient Color class expects 0-255 values
     const colorMap: Record<string, { r: number; g: number; b: number }> = {
-      critical: { r: 239/255, g: 68/255, b: 68/255 },   // Red
-      high: { r: 239/255, g: 68/255, b: 68/255 },        // Red
-      warning: { r: 234/255, g: 179/255, b: 8/255 },     // Yellow/Amber
-      medium: { r: 234/255, g: 179/255, b: 8/255 },      // Yellow/Amber
-      info: { r: 59/255, g: 130/255, b: 246/255 },       // Blue
-      low: { r: 59/255, g: 130/255, b: 246/255 },        // Blue
+      critical: { r: 239, g: 68, b: 68 },   // Red
+      high: { r: 239, g: 68, b: 68 },        // Red
+      warning: { r: 234, g: 179, b: 8 },     // Yellow/Amber
+      medium: { r: 234, g: 179, b: 8 },      // Yellow/Amber
+      info: { r: 59, g: 130, b: 246 },       // Blue
+      low: { r: 59, g: 130, b: 246 },        // Blue
     };
     
     const normalizedSeverity = severity?.toLowerCase() || '';
-    const color = colorMap[normalizedSeverity] || { r: 107/255, g: 114/255, b: 128/255 }; // Gray default
+    const color = colorMap[normalizedSeverity] || { r: 107, g: 114, b: 128 }; // Gray default
     
-    // Always return plain object format { r, g, b } with normalized values (0-1)
-    // This matches what the adapter does - no Color instance needed
     return color;
   };
 
@@ -732,16 +732,18 @@ function Workbench() {
           const geometryRect = new Geometry.Rect(rect);
           console.log(`🔵 Geometry.Rect created:`, geometryRect);
           
-              // Use plain object format like the adapter does (not Color instance)
-              let color = colorObj; // { r, g, b } format with normalized values
+              // Ensure we have a Color instance
+              let color = colorObj;
+              const ColorClass = NutrientViewer?.Color || (pdfAdapter as any)?.Color;
               
-              // If using global module, wrap in Color instance
-              if (NutrientViewer && NutrientViewer.Color) {
+              if (ColorClass) {
                 try {
-                  color = new NutrientViewer.Color(colorObj);
+                  color = new ColorClass(colorObj);
                 } catch (e) {
                   console.warn("Failed to create Color instance:", e);
                 }
+              } else {
+                console.warn("⚠️ Color class not available for annotation");
               }
               
               console.log(`🔵 Using color:`, color);
@@ -758,7 +760,7 @@ function Workbench() {
             annotation = new Annotations.HighlightAnnotation({
               pageIndex: issue.pageIndex,
               rects: [geometryRect],
-              color: color, // Plain { r, g, b } object
+                  color: color,
             });
           } catch (e) {
              console.warn("HighlightAnnotation failed in handleIssueClick, falling back to RectangleAnnotation", e);
