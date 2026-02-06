@@ -519,56 +519,35 @@ function Workbench() {
   };
 
   const handleApplySuggestedFix = async (issue: Issue) => {
-    if (!fixEngine) {
-      toast({
-        title: "Not Ready",
-        description: "PDF viewer is still initializing",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Navigate to issue first if not already there
     if (selectedIssueId !== issue.issueId) {
       await handleIssueClick(issue);
-      // Wait a moment for navigation
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
 
     try {
-      const result = await fixEngine.applyFix(issue);
+      setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "APPLIED"));
+      setSelectedIssueId(null);
 
-      if (result.success) {
-        setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "APPLIED"));
-        setSelectedIssueId(null); // Clear selection after applying
-        
-        await auditMutation.mutateAsync({
-          claimId: selectedClaimId,
-          documentId: selectedDocumentId,
-          issueId: issue.issueId,
-          action: "applied",
-          method: result.method,
-          before: issue.foundValue || "",
-          after: issue.expectedValue || "",
-          user: username,
-          ts: new Date().toISOString(),
-        });
+      await auditMutation.mutateAsync({
+        claimId: selectedClaimId,
+        documentId: selectedDocumentId,
+        issueId: issue.issueId,
+        action: "applied",
+        method: "accepted",
+        before: issue.foundValue || "",
+        after: issue.expectedValue || "",
+        user: username,
+        ts: new Date().toISOString(),
+      });
 
-        toast({
-          title: "Fix Applied",
-          description: `Issue corrected using ${result.method} method`,
-        });
-      } else {
-        toast({
-          title: "Fix Failed",
-          description: result.error || "Unable to apply automatic fix",
-          variant: "destructive",
-        });
-      }
+      toast({
+        title: "Correction Accepted",
+        description: `"${issue.foundValue}" → "${issue.expectedValue}" recorded`,
+      });
     } catch (err) {
       toast({
         title: "Error",
-        description: "Failed to apply fix",
+        description: "Failed to record correction",
         variant: "destructive",
       });
     }
