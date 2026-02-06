@@ -327,7 +327,11 @@ function Workbench() {
 
   useEffect(() => {
     if (instance && issueBundle?.issues && isDocumentLoaded) {
-      drawIssueAnnotations();
+      // Wait a bit longer for viewer to be fully ready
+      const timer = setTimeout(() => {
+        drawIssueAnnotations();
+      }, 1000);
+      return () => clearTimeout(timer);
     }
   }, [instance, issueBundle, isDocumentLoaded]);
 
@@ -335,47 +339,101 @@ function Workbench() {
     if (!instance || !issueBundle) return;
 
     try {
+      // Wait for viewer to be fully ready
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       const Annotations = await instance.Annotations;
       const Geometry = await instance.Geometry;
       const Color = await instance.Color;
 
+      console.log(`Creating annotations for ${issueBundle.issues.length} issues`);
+
       for (const issue of issueBundle.issues) {
         if (issueAnnotations.has(issue.issueId)) {
+          console.log(`Annotation already exists for issue ${issue.issueId}`);
           continue;
         }
 
-        const color = getIssueColor(issue.severity);
-        const annotation = new Annotations.RectangleAnnotation({
-          pageIndex: issue.pageIndex,
-          boundingBox: new Geometry.Rect(issue.rect),
-          strokeColor: color,
-          strokeWidth: 3,
-          isEditable: false,
-          opacity: 0.4,
-          fillColor: color,
-          fillOpacity: 0.1,
-          customData: { issueId: issue.issueId },
-        });
+        if (!issue.rect) {
+          console.warn(`Issue ${issue.issueId} has no rect, skipping annotation`);
+          continue;
+        }
 
-        const createdAnnotation = await instance.create(annotation);
-        setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, createdAnnotation.id));
+        try {
+          const color = await getIssueColor(issue.severity);
+          if (!color) {
+            console.warn(`Could not get color for severity ${issue.severity}`);
+            continue;
+          }
+
+          const annotation = new Annotations.RectangleAnnotation({
+            pageIndex: issue.pageIndex,
+            boundingBox: new Geometry.Rect(issue.rect),
+            strokeColor: color,
+            strokeWidth: 4,
+            isEditable: false,
+            opacity: 0.7,
+            fillColor: color,
+            fillOpacity: 0.25,
+            customData: { issueId: issue.issueId },
+          });
+
+          const createdAnnotation = await instance.create(annotation);
+          console.log(`Created annotation ${createdAnnotation.id} for issue ${issue.issueId} on page ${issue.pageIndex}`, {
+            rect: issue.rect,
+            pageIndex: issue.pageIndex,
+            annotationId: createdAnnotation.id
+          });
+          
+          // Verify annotation was created
+          if (createdAnnotation && createdAnnotation.id) {
+            setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, createdAnnotation.id));
+            
+            // Try to make it visible immediately
+            try {
+              await instance.setSelectedAnnotation(createdAnnotation.id);
+              // Deselect after a moment so all annotations are visible
+              setTimeout(() => {
+                instance.setSelectedAnnotation(null).catch(() => {});
+              }, 100);
+            } catch (selectErr) {
+              console.log("Could not select annotation immediately:", selectErr);
+            }
+          } else {
+            console.error(`Annotation creation returned invalid result:`, createdAnnotation);
+          }
+        } catch (annotationErr) {
+          console.error(`Failed to create annotation for issue ${issue.issueId}:`, annotationErr);
+        }
       }
+      
+      console.log(`Finished creating annotations. Total: ${issueAnnotations.size}`);
     } catch (err) {
       console.error("Failed to draw annotations:", err);
     }
   };
 
-  const getIssueColor = (severity: string) => {
+  const getIssueColor = async (severity: string) => {
     if (!instance) return null;
-    switch (severity) {
-      case "critical":
-        return new instance.Color(239, 68, 68);
-      case "warning":
-        return new instance.Color(234, 179, 8);
-      case "info":
-        return new instance.Color(59, 130, 246);
-      default:
-        return new instance.Color(107, 114, 128);
+    
+    try {
+      const Color = await instance.Color;
+      switch (severity?.toLowerCase()) {
+        case "critical":
+        case "high":
+          return new Color(239, 68, 68); // Red
+        case "warning":
+        case "medium":
+          return new Color(234, 179, 8); // Yellow/Amber
+        case "info":
+        case "low":
+          return new Color(59, 130, 246); // Blue
+        default:
+          return new Color(107, 114, 128); // Gray
+      }
+    } catch (err) {
+      console.error("Failed to create color:", err);
+      return null;
     }
   };
 
@@ -489,72 +547,109 @@ function Workbench() {
     setSelectedIssueId(issue.issueId);
 
     try {
-      // Step 1: Navigate to the page
+      console.log(`Navigating to issue ${issue.issueId} on page ${issue.pageIndex}`);
+      
+      // Step 1: Navigate to the page first
       await instance.setViewState((viewState: any) =>
         viewState.set("currentPageIndex", issue.pageIndex)
       );
 
-      // Step 2: Ensure annotation exists, create if needed
+      // Step 2: Wait for page to render
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Step 3: Ensure annotation exists, create if needed
       let annotationId = issueAnnotations.get(issue.issueId);
       
       if (!annotationId && issue.rect) {
+        console.log(`Creating annotation for issue ${issue.issueId}`);
         // Create the annotation if it doesn't exist
         try {
           const Annotations = await instance.Annotations;
           const Geometry = await instance.Geometry;
           const Color = await instance.Color;
 
-          const color = getIssueColor(issue.severity);
+          const color = await getIssueColor(issue.severity);
+          if (!color) {
+            throw new Error(`Could not get color for severity ${issue.severity}`);
+          }
+
           const annotation = new Annotations.RectangleAnnotation({
             pageIndex: issue.pageIndex,
             boundingBox: new Geometry.Rect(issue.rect),
             strokeColor: color,
-            strokeWidth: 3,
+            strokeWidth: 4,
             isEditable: false,
-            opacity: 0.4,
+            opacity: 0.7,
             fillColor: color,
-            fillOpacity: 0.1,
+            fillOpacity: 0.25,
             customData: { issueId: issue.issueId },
           });
 
           const createdAnnotation = await instance.create(annotation);
           annotationId = createdAnnotation.id;
-          setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, annotationId!));
+          console.log(`Created annotation ${annotationId} for issue ${issue.issueId}`, {
+            rect: issue.rect,
+            pageIndex: issue.pageIndex
+          });
+          
+          if (createdAnnotation && createdAnnotation.id) {
+            setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, annotationId!));
+          } else {
+            throw new Error("Annotation creation returned invalid result");
+          }
         } catch (annotationError) {
           console.error("Failed to create annotation:", annotationError);
+          toast({
+            title: "Annotation Error",
+            description: `Failed to create annotation: ${annotationError instanceof Error ? annotationError.message : 'Unknown error'}`,
+            variant: "destructive",
+          });
         }
       }
 
-      // Step 3: Wait a bit for page to render, then select and zoom to annotation
-      if (annotationId && issue.rect) {
-        // Small delay to ensure page is rendered
-        await new Promise(resolve => setTimeout(resolve, 300));
+      // Step 4: Select and highlight the annotation
+      if (annotationId) {
+        console.log(`Selecting annotation ${annotationId}`);
         
-        // Select the annotation (this will highlight it in the viewer)
-        await instance.setSelectedAnnotation(annotationId);
-        
-        // Step 4: Try to zoom/pan to fit the annotation in view
         try {
-          // Try using viewer's built-in methods if available
-          if (typeof instance.zoomToAnnotation === 'function') {
-            await instance.zoomToAnnotation(annotationId);
-          } else if (typeof instance.fitToView === 'function') {
-            const Geometry = await instance.Geometry;
-            const rect = new Geometry.Rect(issue.rect);
-            await instance.fitToView(rect, issue.pageIndex);
-          } else {
-            // Fallback: Set zoom mode to fit width which usually shows annotations better
-            await instance.setViewState((viewState: any) => {
-              return viewState.merge({
-                currentPageIndex: issue.pageIndex,
-                zoom: { zoomMode: 'FIT_TO_WIDTH' }
-              });
-            });
+          // Select the annotation (this should highlight it)
+          await instance.setSelectedAnnotation(annotationId);
+          console.log(`Annotation ${annotationId} selected successfully`);
+          
+          // Try to ensure it's visible - some viewers need a small delay
+          await new Promise(resolve => setTimeout(resolve, 200));
+          
+          // Try to zoom/pan to fit the annotation in view if methods are available
+          try {
+            if (typeof instance.zoomToAnnotation === 'function') {
+              await instance.zoomToAnnotation(annotationId);
+            } else if (typeof instance.fitToView === 'function') {
+              const Geometry = await instance.Geometry;
+              const rect = new Geometry.Rect(issue.rect);
+              await instance.fitToView(rect, issue.pageIndex);
+            }
+          } catch (zoomError) {
+            console.log("Zoom methods not available, continuing with selection");
           }
-        } catch (zoomError) {
-          // If zoom methods aren't available, that's okay - selection still works
-          console.log("Zoom to annotation not available, annotation is selected");
+          
+          toast({
+            title: "Issue Highlighted",
+            description: `Showing issue on page ${issue.pageIndex + 1}`,
+          });
+        } catch (selectError) {
+          console.error("Failed to select annotation:", selectError);
+          toast({
+            title: "Selection Error",
+            description: `Failed to highlight annotation: ${selectError instanceof Error ? selectError.message : 'Unknown error'}`,
+            variant: "destructive",
+          });
         }
+      } else {
+        console.warn(`No annotation ID found for issue ${issue.issueId}`);
+        toast({
+          title: "No Annotation",
+          description: `Issue on page ${issue.pageIndex + 1} (no location data)`,
+        });
       }
     } catch (err) {
       console.error("Failed to navigate to issue:", err);
@@ -1397,7 +1492,10 @@ function Workbench() {
                       <div className="flex items-start justify-between gap-2 mb-1.5 min-w-0">
                         <div className="flex items-start gap-1.5 min-w-0 flex-1">
                           <SeverityIcon className={cn("h-4 w-4 shrink-0 mt-0.5", getSeverityColor(issue.severity).split(" ")[0])} />
-                          <span className="text-sm font-medium break-words leading-snug min-w-0" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{issue.label || formatCorrectionType(issue.type)}</span>
+                          <span className="text-sm font-medium break-words leading-snug min-w-0" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                            {issue.label || formatCorrectionType(issue.type)}
+                            {!issue.rect && <span className="text-xs text-muted-foreground ml-1">(no location)</span>}
+                          </span>
                         </div>
                         <Badge 
                           variant="outline" 
