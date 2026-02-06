@@ -14,6 +14,7 @@ export class NutrientAdapter implements PDFProcessorAdapter {
   private Annotations: any;
   private Geometry: any;
   private Color: any;
+  private Immutable: any;
 
   async initialize(instance: any, module?: any): Promise<void> {
     this.instance = instance;
@@ -28,6 +29,7 @@ export class NutrientAdapter implements PDFProcessorAdapter {
       this.Annotations = module.Annotations;
       this.Geometry = module.Geometry;
       this.Color = module.Color;
+      this.Immutable = module.Immutable;
     }
 
     // Fallback to instance if module not provided or properties missing
@@ -75,10 +77,11 @@ export class NutrientAdapter implements PDFProcessorAdapter {
       console.warn("⚠️ NutrientAdapter: Modules not fully loaded.", {
         hasAnnotations: !!this.Annotations,
         hasGeometry: !!this.Geometry,
-        hasColor: !!this.Color
+        hasColor: !!this.Color,
+        hasImmutable: !!this.Immutable
       });
     } else {
-      console.log("✅ NutrientAdapter: All modules loaded (Annotations, Geometry, Color)");
+      console.log("✅ NutrientAdapter: All modules loaded (Annotations, Geometry, Color, Immutable)");
     }
   }
 
@@ -265,7 +268,7 @@ export class NutrientAdapter implements PDFProcessorAdapter {
       // Create redaction overlay with expected value
       await this.instance.createRedactionOverlay({
         pageIndex: bbox.pageIndex,
-        rects: [rect],
+        rects: this.toImmutableList([rect]),
         overlayText: correction.expected_value,
       });
 
@@ -313,9 +316,10 @@ export class NutrientAdapter implements PDFProcessorAdapter {
         case "highlight":
           try {
             // Try HighlightAnnotation first (best for text)
+            // rects MUST be NutrientViewer.Immutable.List, not a plain array
             nativeAnnotation = new this.Annotations.HighlightAnnotation({
               pageIndex: bbox.pageIndex,
-              rects: [rect],
+              rects: this.toImmutableList([rect]),
               color: color,
             });
           } catch (e) {
@@ -343,14 +347,14 @@ export class NutrientAdapter implements PDFProcessorAdapter {
         case "strikethrough":
           nativeAnnotation = new this.Annotations.StrikeOutAnnotation({
             pageIndex: bbox.pageIndex,
-            rects: [rect],
+            rects: this.toImmutableList([rect]),
           });
           break;
 
         case "underline":
           nativeAnnotation = new this.Annotations.UnderlineAnnotation({
             pageIndex: bbox.pageIndex,
-            rects: [rect],
+            rects: this.toImmutableList([rect]),
           });
           break;
 
@@ -517,7 +521,7 @@ export class NutrientAdapter implements PDFProcessorAdapter {
 
       await this.instance.createRedactionOverlay({
         pageIndex: bbox.pageIndex,
-        rects: [rect],
+        rects: this.toImmutableList([rect]),
         overlayText,
       });
 
@@ -545,6 +549,19 @@ export class NutrientAdapter implements PDFProcessorAdapter {
       console.error("Failed to get Instant JSON:", err);
       throw err;
     }
+  }
+
+  /**
+   * Wrap a plain JS array in NutrientViewer.Immutable.List if available.
+   * The Nutrient SDK requires rects to be an Immutable.List, not a plain array.
+   */
+  private toImmutableList(arr: any[]): any {
+    if (this.Immutable?.List) {
+      return new this.Immutable.List(arr);
+    }
+    // Fallback: return plain array and hope for the best
+    console.warn("⚠️ NutrientAdapter: Immutable.List not available, using plain array");
+    return arr;
   }
 
   // Helper: Convert hex color to Nutrient color format

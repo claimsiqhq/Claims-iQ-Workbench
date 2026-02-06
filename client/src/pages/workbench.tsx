@@ -435,11 +435,20 @@ function Workbench() {
               });
               
               // Use HighlightAnnotation exactly like the adapter does
+              // rects MUST be wrapped in NutrientViewer.Immutable.List, not a plain array
+              const toImmutableList = (arr: any[]) => {
+                if (NutrientViewer?.Immutable?.List) {
+                  return new NutrientViewer.Immutable.List(arr);
+                }
+                console.warn("⚠️ Immutable.List not available, using plain array");
+                return arr;
+              };
+              
               let annotation;
               try {
                 annotation = new Annotations.HighlightAnnotation({
                   pageIndex: issue.pageIndex,
-                  rects: [geometryRect],
+                  rects: toImmutableList([geometryRect]),
                   color: color,
                 });
               } catch (e) {
@@ -749,18 +758,23 @@ function Workbench() {
               console.log(`🔵 Using color:`, color);
           
           // Create highlight annotation exactly like the adapter does
-          console.log(`🔵 Creating HighlightAnnotation with:`, {
-            pageIndex: issue.pageIndex,
-            rects: [geometryRect],
-            color: color
-          });
+          // rects MUST be wrapped in NutrientViewer.Immutable.List, not a plain array
+          const toImmutableList = (arr: any[]) => {
+            if (NutrientViewer?.Immutable?.List) {
+              return new NutrientViewer.Immutable.List(arr);
+            }
+            console.warn("⚠️ Immutable.List not available, using plain array");
+            return arr;
+          };
+          
+          console.log(`🔵 Creating HighlightAnnotation with Immutable.List rects`);
           
           let annotation;
           try {
             annotation = new Annotations.HighlightAnnotation({
               pageIndex: issue.pageIndex,
-              rects: [geometryRect],
-                  color: color,
+              rects: toImmutableList([geometryRect]),
+              color: color,
             });
           } catch (e) {
              console.warn("HighlightAnnotation failed in handleIssueClick, falling back to RectangleAnnotation", e);
