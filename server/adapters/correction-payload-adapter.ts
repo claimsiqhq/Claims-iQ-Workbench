@@ -1,14 +1,15 @@
 import { v4 as uuidv4 } from "uuid";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
-import fs from "fs";
-import path from "path";
 import type { Correction, Location } from "../../shared/schemas/correction.schema";
 import type { Annotation } from "../../shared/schemas/annotation.schema";
 import type { CrossDocumentValidation, DocumentValue } from "../../shared/schemas/cross-document-validation.schema";
-
-const SCHEMA_DIR = path.join(process.cwd(), "server", "schemas");
-const ACTIVE_SCHEMA_FILE = path.join(SCHEMA_DIR, "claimsiq_correction_schema.json");
+import {
+  getActiveSchema as getActiveSchemaFromStore,
+  saveActiveSchema as saveActiveSchemaToStore,
+  deleteActiveSchema as deleteActiveSchemaFromStore,
+  getSchemaInfo as getSchemaInfoFromStore,
+} from "../schema-store";
 
 export interface CorrectionPayloadResult {
   claimId: string;
@@ -49,56 +50,42 @@ export function isClaimsIQPayload(data: any): boolean {
   );
 }
 
-export function getActiveSchema(): any | null {
-  try {
-    const schemaPath = getActiveSchemaPath();
-    if (fs.existsSync(schemaPath)) {
-      return JSON.parse(fs.readFileSync(schemaPath, "utf-8"));
-    }
-  } catch {
-  }
-  return null;
+export async function getActiveSchema(): Promise<any | null> {
+  return getActiveSchemaFromStore();
 }
 
-export function getActiveSchemaPath(): string {
-  const customPath = path.join(SCHEMA_DIR, "active_schema.json");
-  if (fs.existsSync(customPath)) {
-    return customPath;
-  }
-  return ACTIVE_SCHEMA_FILE;
+export async function getSchemaInfo(): Promise<{
+  version: string;
+  title: string;
+  schema: any;
+  hasCustomSchema: boolean;
+}> {
+  return getSchemaInfoFromStore();
 }
 
-export function getSchemaVersion(): string {
-  const schema = getActiveSchema();
-  return schema?.version || "unknown";
+export async function getSchemaVersion(): Promise<string> {
+  const info = await getSchemaInfoFromStore();
+  return info.version;
 }
 
-export function getSchemaTitle(): string {
-  const schema = getActiveSchema();
-  return schema?.title || "Unknown Schema";
+export async function getSchemaTitle(): Promise<string> {
+  const info = await getSchemaInfoFromStore();
+  return info.title;
 }
 
-export function saveActiveSchema(schemaContent: any): { success: boolean; error?: string } {
-  try {
-    if (!schemaContent || typeof schemaContent !== "object") {
-      return { success: false, error: "Schema must be a valid JSON object" };
-    }
-    if (!schemaContent.$schema && !schemaContent.type) {
-      return { success: false, error: "Schema must be a valid JSON Schema (missing $schema or type)" };
-    }
-    if (!fs.existsSync(SCHEMA_DIR)) {
-      fs.mkdirSync(SCHEMA_DIR, { recursive: true });
-    }
-    const customPath = path.join(SCHEMA_DIR, "active_schema.json");
-    fs.writeFileSync(customPath, JSON.stringify(schemaContent, null, 2));
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Failed to save schema" };
-  }
+export async function saveActiveSchema(
+  schemaContent: any,
+  userId?: string
+): Promise<{ success: boolean; error?: string }> {
+  return saveActiveSchemaToStore(schemaContent, userId);
 }
 
-export function validateAgainstSchema(payload: any): { valid: boolean; errors?: string[] } {
-  const schema = getActiveSchema();
+export async function deleteActiveSchema(): Promise<{ success: boolean; error?: string }> {
+  return deleteActiveSchemaFromStore();
+}
+
+export async function validateAgainstSchema(payload: any): Promise<{ valid: boolean; errors?: string[] }> {
+  const schema = await getActiveSchema();
   if (!schema) {
     return { valid: true };
   }

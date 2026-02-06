@@ -20,7 +20,9 @@ import {
   getActiveSchema,
   getSchemaVersion,
   getSchemaTitle,
+  getSchemaInfo,
   saveActiveSchema,
+  deleteActiveSchema,
 } from "./adapters/correction-payload-adapter";
 import jwt from "jsonwebtoken";
 import multer from "multer";
