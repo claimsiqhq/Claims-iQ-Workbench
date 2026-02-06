@@ -283,31 +283,67 @@ export function adaptCorrectionPayload(payload: any): CorrectionPayloadResult {
 export function adaptToIssueBundle(payload: any, documentId: string) {
   const adapted = adaptCorrectionPayload(payload);
 
+  // Build a map from document_id -> original corrections so we can get raw page numbers
+  const rawPageMap = new Map<string, Map<string, number>>();
+  for (const doc of (payload.documents || [])) {
+    const corrMap = new Map<string, number>();
+    for (const corr of (doc.corrections || [])) {
+      // Store page number (1-indexed from JSON) keyed by search_text or original_value
+      const key = corr.location?.search_text || corr.original_value || "";
+      if (key && corr.location?.page) {
+        corrMap.set(key, corr.location.page);
+      }
+    }
+    rawPageMap.set(doc.document_id, corrMap);
+  }
+
   const allIssues = adapted.documents.flatMap((doc) =>
-    doc.corrections.map((corr) => ({
-      issueId: corr.id,
-      type: corr.type,
-      severity: mapSeverityForIssue(corr.severity),
-      confidence: corr.confidence,
-      pageIndex: corr.location.bbox?.pageIndex ?? 0,
-      rect: corr.location.bbox
+    doc.corrections.map((corr) => {
+      // Determine pageIndex: prefer bbox, then search_text context, then raw payload page
+      let pageIndex = 0;
+      if (corr.location.bbox) {
+        pageIndex = corr.location.bbox.pageIndex;
+      } else if (corr.location.search_text) {
+        // Look up the original page from the raw payload
+        const corrMap = rawPageMap.get(doc.documentId);
+        const rawPage = corrMap?.get(corr.location.search_text.text);
+        if (rawPage) {
+          pageIndex = rawPage - 1; // Convert 1-indexed to 0-indexed
+        }
+      }
+
+      // Only include rect if real bbox coordinates exist (not fake defaults)
+      const rect = corr.location.bbox
         ? {
             left: corr.location.bbox.left,
             top: corr.location.bbox.top,
             width: corr.location.bbox.width,
             height: corr.location.bbox.height,
           }
-        : { left: 0, top: 0, width: 100, height: 20 },
-      foundValue: corr.found_value,
-      expectedValue: corr.expected_value,
-      suggestedFix: {
-        strategy: corr.requires_human_review ? ("manual" as const) : ("auto" as const),
-        requiresApproval: corr.requires_human_review,
-        fallbackOrder: ["form_field" as const, "content_edit" as const, "redaction_overlay" as const],
-      },
-      label: corr.evidence.reasoning,
-      status: "OPEN" as const,
-    }))
+        : undefined;
+
+      // Pass through search_text for frontend text-search-based annotation
+      const searchText = corr.location.search_text?.text || corr.found_value || undefined;
+
+      return {
+        issueId: corr.id,
+        type: corr.type,
+        severity: mapSeverityForIssue(corr.severity),
+        confidence: corr.confidence,
+        pageIndex,
+        rect,
+        searchText,
+        foundValue: corr.found_value,
+        expectedValue: corr.expected_value,
+        suggestedFix: {
+          strategy: corr.requires_human_review ? ("manual" as const) : ("auto" as const),
+          requiresApproval: corr.requires_human_review,
+          fallbackOrder: ["form_field" as const, "content_edit" as const, "redaction_overlay" as const],
+        },
+        label: corr.evidence.reasoning,
+        status: "OPEN" as const,
+      };
+    })
   );
 
   return {

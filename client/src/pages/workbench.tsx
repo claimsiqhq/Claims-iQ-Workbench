@@ -349,129 +349,127 @@ function Workbench() {
 
   // Draw issue annotations when document and issues are loaded
   useEffect(() => {
-    if (instance && issueBundle?.issues && isDocumentLoaded && issueBundle.issues.length > 0 && pdfAdapter) {
+    if (instance && issueBundle?.issues && isDocumentLoaded && issueBundle.issues.length > 0) {
       const drawAnnotations = async () => {
         try {
           await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for viewer to be ready
           
-          // Check if instance and adapter are still available
-          if (!instance || !pdfAdapter) {
-            console.warn("Instance or adapter no longer available");
+          if (!instance) {
+            console.warn("Instance no longer available");
             return;
-          }
-          
-          // Use the adapter's Annotations and Geometry (they're already loaded)
-          const adapter = pdfAdapter as any;
-          
-          let Annotations = adapter.Annotations;
-          let Geometry = adapter.Geometry;
-
-          // Prefer global module if available
-          if (NutrientViewer) {
-             Annotations = NutrientViewer.Annotations;
-             Geometry = NutrientViewer.Geometry;
-             console.log("✅ Using global NutrientViewer module for drawAnnotations");
-          }
-          
-          if (!Annotations || !Geometry) {
-            console.error("❌ Adapter modules not loaded. Waiting for adapter initialization...");
-            return;
-          }
-          
-          console.log("✅ Using adapter's Annotations and Geometry modules");
-          
-          // Safely log available annotation types
-          try {
-            const annotationKeys = Object.keys(Annotations);
-            console.log("Available annotation types:", annotationKeys);
-          } catch (err) {
-            console.warn("Could not log annotation types:", err);
           }
           
           for (const issue of issueBundle.issues) {
-            if (issueAnnotations.has(issue.issueId) || !issue.rect) continue;
+            if (issueAnnotations.has(issue.issueId)) continue;
+            
+            // Need either rect or searchText to create an annotation
+            if (!issue.rect && !issue.searchText) continue;
             
             try {
-              const colorObj = await getIssueColor(issue.severity);
-              if (!colorObj) continue;
-              
-              // Parse rect if needed
-              let rect = issue.rect;
-              if (typeof rect === 'string') {
-                try {
-                  rect = JSON.parse(rect);
-                } catch (e) {
-                  continue;
+              // Strategy: Use text search to find real positions on the page
+              // This is the correct approach when corrections use search_text-based locations
+              if (issue.searchText) {
+                const searchResults = await instance.search(issue.searchText);
+                
+                if (searchResults && searchResults.length > 0) {
+                  // Find result on the correct page
+                  const pageResults = searchResults.filter(
+                    (r: any) => r.pageIndex === issue.pageIndex
+                  );
+                  const result = pageResults.length > 0 ? pageResults[0] : searchResults[0];
+                  
+                  if (result && result.rectsOnPage && result.rectsOnPage.length > 0) {
+                    // Use the SDK's built-in highlight via search results
+                    // Create a highlight annotation at the found text location
+                    const Annotations = NutrientViewer?.Annotations;
+                    const Geometry = NutrientViewer?.Geometry;
+                    const Immutable = NutrientViewer?.Immutable;
+                    
+                    if (Annotations?.HighlightAnnotation && Immutable?.List) {
+                      try {
+                        const rects = Immutable.List(result.rectsOnPage);
+                        const colorObj = await getIssueColor(issue.severity);
+                        let color: any = colorObj;
+                        if (NutrientViewer?.Color && colorObj) {
+                          try { color = new NutrientViewer.Color(colorObj); } catch (_) {}
+                        }
+                        
+                        const annotation = new Annotations.HighlightAnnotation({
+                          pageIndex: result.pageIndex,
+                          rects,
+                          color,
+                        });
+                        
+                        const created = await instance.create(annotation);
+                        if (created?.id) {
+                          setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, created.id));
+                          continue;
+                        }
+                      } catch (highlightErr) {
+                        console.warn(`HighlightAnnotation failed for "${issue.searchText}", trying fallback:`, highlightErr);
+                      }
+                    }
+                    
+                    // Fallback: use NoteAnnotation or TextAnnotation at the found location
+                    if (Annotations && Geometry) {
+                      try {
+                        const firstRect = result.rectsOnPage[0];
+                        const annotation = new Annotations.NoteAnnotation({
+                          pageIndex: result.pageIndex,
+                          boundingBox: firstRect,
+                          text: { value: issue.label || `${issue.foundValue} → ${issue.expectedValue}` },
+                        });
+                        
+                        const created = await instance.create(annotation);
+                        if (created?.id) {
+                          setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, created.id));
+                          continue;
+                        }
+                      } catch (noteErr) {
+                        console.warn("NoteAnnotation fallback also failed:", noteErr);
+                      }
+                    }
+                  }
+                } else {
+                  console.warn(`No search results found for "${issue.searchText}" on page ${issue.pageIndex}`);
                 }
               }
               
-              if (typeof rect.left !== 'number' || typeof rect.top !== 'number' || 
-                  typeof rect.width !== 'number' || typeof rect.height !== 'number') {
-                continue;
-              }
-              
-              const geometryRect = new Geometry.Rect(rect);
-              
-              // Ensure we have a Color instance
-              let color = colorObj;
-              const ColorClass = NutrientViewer?.Color || (pdfAdapter as any)?.Color;
-              
-              if (ColorClass) {
-                try {
-                  color = new ColorClass(colorObj);
-                } catch (e) {
-                  console.warn("Failed to create Color instance:", e);
+              // Last resort: use bbox rect if available
+              if (issue.rect) {
+                let rect = issue.rect;
+                if (typeof rect === 'string') {
+                  try { rect = JSON.parse(rect); } catch (_) { continue; }
                 }
-              } else {
-                console.warn("⚠️ Color class not available for annotation");
-              }
-              
-              console.log(`Creating highlight annotation for issue ${issue.issueId}:`, {
-                pageIndex: issue.pageIndex,
-                rect: rect,
-                geometryRect: geometryRect,
-                color: color,
-                colorType: typeof color
-              });
-              
-              // Use HighlightAnnotation exactly like the adapter does
-              // rects MUST be wrapped in NutrientViewer.Immutable.List, not a plain array
-              const toImmutableList = (arr: any[]) => {
-                if (NutrientViewer?.Immutable?.List) {
-                  return new NutrientViewer.Immutable.List(arr);
+                
+                if (typeof rect.left !== 'number' || typeof rect.top !== 'number') continue;
+                
+                const Annotations = NutrientViewer?.Annotations;
+                const Geometry = NutrientViewer?.Geometry;
+                const Immutable = NutrientViewer?.Immutable;
+                
+                if (Annotations && Geometry && Immutable?.List) {
+                  const geometryRect = new Geometry.Rect(rect);
+                  const colorObj = await getIssueColor(issue.severity);
+                  let color: any = colorObj;
+                  if (NutrientViewer?.Color && colorObj) {
+                    try { color = new NutrientViewer.Color(colorObj); } catch (_) {}
+                  }
+                  
+                  try {
+                    const annotation = new Annotations.HighlightAnnotation({
+                      pageIndex: issue.pageIndex,
+                      rects: Immutable.List([geometryRect]),
+                      color,
+                    });
+                    const created = await instance.create(annotation);
+                    if (created?.id) {
+                      setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, created.id));
+                    }
+                  } catch (e) {
+                    console.warn("HighlightAnnotation with bbox failed:", e);
+                  }
                 }
-                console.warn("⚠️ Immutable.List not available, using plain array");
-                return arr;
-              };
-              
-              let annotation;
-              try {
-                annotation = new Annotations.HighlightAnnotation({
-                  pageIndex: issue.pageIndex,
-                  rects: toImmutableList([geometryRect]),
-                  color: color,
-                });
-              } catch (e) {
-                console.warn("HighlightAnnotation failed in drawAnnotations, falling back to RectangleAnnotation", e);
-                annotation = new Annotations.RectangleAnnotation({
-                  pageIndex: issue.pageIndex,
-                  boundingBox: geometryRect,
-                  strokeColor: color,
-                  strokeWidth: 2,
-                  fillColor: { r: color.r, g: color.g, b: color.b, a: 0.3 },
-                });
-              }
-              
-              console.log(`Created annotation object:`, annotation);
-              
-              const created = await instance.create(annotation);
-              console.log(`Annotation creation result:`, created);
-              
-              if (created && created.id) {
-                console.log(`✅ Successfully created annotation ${created.id} for issue ${issue.issueId}`);
-                setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, created.id));
-              } else {
-                console.error(`❌ Failed to create annotation - no ID returned:`, created);
               }
             } catch (err) {
               console.error(`Failed to create annotation for issue ${issue.issueId}:`, err);
@@ -484,7 +482,7 @@ function Workbench() {
       
       drawAnnotations();
     }
-  }, [instance, issueBundle, isDocumentLoaded, pdfAdapter]);
+  }, [instance, issueBundle, isDocumentLoaded]);
 
   const getIssueColor = async (severity: string): Promise<{ r: number; g: number; b: number } | null> => {
     // Determine RGB values based on severity (0-255 range)
@@ -618,249 +616,127 @@ function Workbench() {
         viewState.set("currentPageIndex", issue.pageIndex)
       );
 
-      await new Promise(resolve => setTimeout(resolve, 500)); // Wait for page to render
+      await new Promise(resolve => setTimeout(resolve, 300));
 
-      // Always try to create annotation if rect exists
+      // Check if annotation already exists
       let annotationId = issueAnnotations.get(issue.issueId);
       
-      if (!annotationId && issue.rect) {
-        // Create annotation if it doesn't exist
-        try {
-          console.log(`🔵 Attempting to create annotation for issue ${issue.issueId}...`);
-          
-          // Validate instance and adapter are available
-          if (!instance) {
-            throw new Error("Instance no longer available");
-          }
-          
-          // Use adapter's Annotations and Geometry if available (they're already loaded)
-          let Annotations: any = null;
-          let Geometry: any = null;
-          
-          // 1. Try global module first (most reliable)
-          if (NutrientViewer) {
-            Annotations = NutrientViewer.Annotations;
-            Geometry = NutrientViewer.Geometry;
-            if (Annotations && Geometry) {
-              console.log("✅ Using global NutrientViewer module for Annotations/Geometry");
-            }
-          }
-
-          // 2. Fallback to adapter
-          if ((!Annotations || !Geometry) && pdfAdapter) {
-            const adapter = pdfAdapter as any;
-            Annotations = adapter.Annotations;
-            Geometry = adapter.Geometry;
+      if (!annotationId) {
+        // Try to create annotation using search_text (primary strategy)
+        const textToSearch = issue.searchText || issue.foundValue || issue.expectedValue;
+        
+        if (textToSearch) {
+          try {
+            const searchResults = await instance.search(textToSearch);
             
-            if (Annotations && Geometry) {
-              console.log("✅ Using adapter's Annotations and Geometry");
-            } else {
-              console.warn("⚠️ Adapter exists but Annotations/Geometry not loaded. Waiting for initialization...");
-              // Wait a bit and check again
-              await new Promise(resolve => setTimeout(resolve, 500));
-              Annotations = adapter.Annotations;
-              Geometry = adapter.Geometry;
+            if (searchResults && searchResults.length > 0) {
+              // Find results on the target page, fall back to first result
+              const pageResults = searchResults.filter(
+                (r: any) => r.pageIndex === issue.pageIndex
+              );
+              const result = pageResults.length > 0 ? pageResults[0] : searchResults[0];
               
-              if (Annotations && Geometry) {
-                console.log("✅ Adapter Annotations/Geometry loaded after wait");
-              }
-            }
-          }
-          
-          // 3. Fallback: try to load from instance directly
-          if (!Annotations || !Geometry) {
-            console.log("🔵 Adapter not ready, loading from instance directly...");
-            let retries = 0;
-            const maxRetries = 20; // 4 seconds total
-            
-            while (retries < maxRetries && (!Annotations || !Geometry)) {
-              try {
-                if (!Annotations) {
-                  Annotations = await instance.Annotations;
-                }
-                if (!Geometry) {
-                  Geometry = await instance.Geometry;
+              if (result?.rectsOnPage?.length > 0) {
+                const Annotations = NutrientViewer?.Annotations;
+                const Immutable = NutrientViewer?.Immutable;
+                
+                if (Annotations?.HighlightAnnotation && Immutable?.List) {
+                  const colorObj = await getIssueColor(issue.severity);
+                  let color: any = colorObj;
+                  if (NutrientViewer?.Color && colorObj) {
+                    try { color = new NutrientViewer.Color(colorObj); } catch (_) {}
+                  }
+                  
+                  try {
+                    const annotation = new Annotations.HighlightAnnotation({
+                      pageIndex: result.pageIndex,
+                      rects: Immutable.List(result.rectsOnPage),
+                      color,
+                    });
+                    
+                    const created = await instance.create(annotation);
+                    if (created?.id) {
+                      annotationId = created.id;
+                      setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, annotationId!));
+                    }
+                  } catch (e) {
+                    console.warn("HighlightAnnotation creation failed:", e);
+                  }
                 }
                 
-                if (Annotations && Geometry) {
-                  console.log(`✅ Annotations and Geometry modules loaded from instance after ${retries + 1} attempts`);
-                  break;
-                }
-              } catch (err) {
-                // Not ready yet
-              }
-              
-              if (!Annotations || !Geometry) {
-                await new Promise(resolve => setTimeout(resolve, 200));
-                retries++;
-              }
-            }
-          }
-          
-          // Validate that Annotations and Geometry are available
-          if (!Annotations) {
-            console.error("❌ Annotations module not available. Debug info:", {
-              instanceKeys: instance ? Object.keys(instance).slice(0, 30) : [],
-              hasAdapter: !!pdfAdapter,
-              adapterType: pdfAdapter ? typeof pdfAdapter : null,
-              adapterKeys: pdfAdapter ? Object.keys(pdfAdapter).slice(0, 20) : [],
-              adapterAnnotations: pdfAdapter ? (pdfAdapter as any).Annotations : null,
-              adapterGeometry: pdfAdapter ? (pdfAdapter as any).Geometry : null,
-              instanceAnnotations: instance?.Annotations,
-              instanceAnnotationsType: typeof instance?.Annotations
-            });
-            throw new Error("Annotations module not available. Check console for details.");
-          }
-          if (!Geometry) {
-            console.error("❌ Geometry module not available");
-            throw new Error("Geometry module not available");
-          }
-          
-          const colorObj = await getIssueColor(issue.severity);
-          
-          if (!colorObj) {
-            throw new Error(`Could not get color for severity ${issue.severity}`);
-          }
-          
-          // Parse rect if needed
-          let rect = issue.rect;
-          if (typeof rect === 'string') {
-            try {
-              rect = JSON.parse(rect);
-            } catch (e) {
-              throw new Error(`Invalid rect JSON: ${rect}`);
-            }
-          }
-          
-          if (typeof rect.left !== 'number' || typeof rect.top !== 'number' || 
-              typeof rect.width !== 'number' || typeof rect.height !== 'number') {
-            throw new Error(`Invalid rect structure: ${JSON.stringify(rect)}`);
-          }
-          
-          console.log(`🔵 Creating Geometry.Rect with:`, rect);
-          const geometryRect = new Geometry.Rect(rect);
-          console.log(`🔵 Geometry.Rect created:`, geometryRect);
-          
-              // Ensure we have a Color instance
-              let color = colorObj;
-              const ColorClass = NutrientViewer?.Color || (pdfAdapter as any)?.Color;
-              
-              if (ColorClass) {
+                // Jump to the found text location regardless of annotation success
                 try {
-                  color = new ColorClass(colorObj);
-                } catch (e) {
-                  console.warn("Failed to create Color instance:", e);
-                }
-              } else {
-                console.warn("⚠️ Color class not available for annotation");
+                  await instance.jumpToRect(result.pageIndex, result.rectsOnPage[0]);
+                } catch (_) {}
               }
-              
-              console.log(`🔵 Using color:`, color);
-          
-          // Create highlight annotation exactly like the adapter does
-          // rects MUST be wrapped in NutrientViewer.Immutable.List, not a plain array
-          const toImmutableList = (arr: any[]) => {
-            if (NutrientViewer?.Immutable?.List) {
-              return new NutrientViewer.Immutable.List(arr);
             }
-            console.warn("⚠️ Immutable.List not available, using plain array");
-            return arr;
-          };
-          
-          console.log(`🔵 Creating HighlightAnnotation with Immutable.List rects`);
-          
-          let annotation;
+          } catch (searchErr) {
+            console.warn("Text search failed:", searchErr);
+          }
+        }
+        
+        // Fallback: use bbox rect if available and no annotation was created yet
+        if (!annotationId && issue.rect) {
           try {
-            annotation = new Annotations.HighlightAnnotation({
-              pageIndex: issue.pageIndex,
-              rects: toImmutableList([geometryRect]),
-              color: color,
-            });
-          } catch (e) {
-             console.warn("HighlightAnnotation failed in handleIssueClick, falling back to RectangleAnnotation", e);
-             annotation = new Annotations.RectangleAnnotation({
-               pageIndex: issue.pageIndex,
-               boundingBox: geometryRect,
-               strokeColor: color,
-               strokeWidth: 2,
-               fillColor: { r: color.r, g: color.g, b: color.b, a: 0.3 },
-             });
+            let rect = issue.rect;
+            if (typeof rect === 'string') {
+              rect = JSON.parse(rect);
+            }
+            
+            if (typeof rect.left === 'number' && typeof rect.top === 'number') {
+              const Annotations = NutrientViewer?.Annotations;
+              const Geometry = NutrientViewer?.Geometry;
+              const Immutable = NutrientViewer?.Immutable;
+              
+              if (Annotations && Geometry && Immutable?.List) {
+                const geometryRect = new Geometry.Rect(rect);
+                const colorObj = await getIssueColor(issue.severity);
+                let color: any = colorObj;
+                if (NutrientViewer?.Color && colorObj) {
+                  try { color = new NutrientViewer.Color(colorObj); } catch (_) {}
+                }
+                
+                try {
+                  const annotation = new Annotations.HighlightAnnotation({
+                    pageIndex: issue.pageIndex,
+                    rects: Immutable.List([geometryRect]),
+                    color,
+                  });
+                  const created = await instance.create(annotation);
+                  if (created?.id) {
+                    annotationId = created.id;
+                    setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, annotationId!));
+                  }
+                } catch (e) {
+                  console.warn("HighlightAnnotation with bbox failed:", e);
+                }
+              }
+            }
+          } catch (rectErr) {
+            console.warn("Rect-based annotation failed:", rectErr);
           }
-          
-          console.log(`🔵 Annotation object created:`, annotation);
-          
-          const created = await instance.create(annotation);
-          console.log(`🔵 Annotation creation result:`, created);
-          
-          if (created && created.id) {
-            annotationId = created.id;
-            console.log(`✅ Successfully created annotation ${annotationId} for issue ${issue.issueId}`);
-            setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, annotationId!));
-          } else {
-            console.error(`❌ Failed to create annotation - no ID returned:`, created);
-            throw new Error(`Annotation creation failed - no ID returned. Result: ${JSON.stringify(created)}`);
-          }
-        } catch (createErr) {
-          console.error(`❌ Failed to create annotation for issue ${issue.issueId}:`, createErr);
-          console.error(`Error details:`, {
-            error: createErr,
-            message: createErr instanceof Error ? createErr.message : String(createErr),
-            stack: createErr instanceof Error ? createErr.stack : undefined,
-            issueId: issue.issueId,
-            hasRect: !!issue.rect,
-            rect: issue.rect
-          });
-          // Don't fall back silently - show the error
-          toast({
-            title: "Annotation Creation Failed",
-            description: `Could not create highlight: ${createErr instanceof Error ? createErr.message : 'Unknown error'}. Check console for details.`,
-            variant: "destructive",
-          });
-          // Still try to navigate to the page
-          toast({
-            title: "Issue Located",
-            description: `Showing page ${issue.pageIndex + 1} — look for "${issue.foundValue || issue.expectedValue || 'issue'}"`,
-          });
-          return; // Exit early since annotation creation failed
         }
       }
       
-      // Select the annotation to make it stand out
+      // Select the annotation to highlight it
       if (annotationId) {
         try {
-          console.log(`🔵 Selecting annotation ${annotationId}...`);
           await instance.setSelectedAnnotation(annotationId);
-          console.log(`✅ Annotation selected successfully`);
           toast({
             title: "Issue Highlighted",
             description: `Showing issue on page ${issue.pageIndex + 1}`,
           });
         } catch (selectErr) {
-          console.error("❌ Failed to select annotation:", selectErr);
+          console.warn("Failed to select annotation:", selectErr);
           toast({
-            title: "Issue Located",
-            description: `Showing page ${issue.pageIndex + 1} (annotation created but selection failed)`,
+            title: "Issue Highlighted",
+            description: `Showing issue on page ${issue.pageIndex + 1}`,
           });
         }
-      } else if (!issue.rect) {
-        // Only fallback to text search if there's no rect data
-        const searchText = issue.foundValue || issue.expectedValue || "";
-        if (searchText) {
-          try {
-            const results = await instance.search(searchText);
-            if (results && results.length > 0) {
-              const pageResults = results.filter((r: any) => r.pageIndex === issue.pageIndex);
-              if (pageResults.length > 0) {
-                await instance.jumpToRect(issue.pageIndex, pageResults[0].rectsOnPage[0]);
-              }
-            }
-          } catch (searchErr) {
-            console.error("Search failed:", searchErr);
-          }
-        }
+      } else {
         toast({
           title: "Issue Located",
-          description: `Showing page ${issue.pageIndex + 1}${searchText ? ` — look for "${searchText}"` : ''}`,
+          description: `Showing page ${issue.pageIndex + 1}`,
         });
       }
     } catch (err) {
@@ -1691,7 +1567,7 @@ function Workbench() {
                           <SeverityIcon className={cn("h-4 w-4 shrink-0 mt-0.5", getSeverityColor(issue.severity).split(" ")[0])} />
                           <span className="text-sm font-medium break-words leading-snug min-w-0" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                             {issue.label || formatCorrectionType(issue.type)}
-                            {!issue.rect && <span className="text-xs text-muted-foreground ml-1">(no location)</span>}
+                            {!issue.rect && !issue.searchText && <span className="text-xs text-muted-foreground ml-1">(no location)</span>}
                           </span>
                         </div>
                         <Badge 

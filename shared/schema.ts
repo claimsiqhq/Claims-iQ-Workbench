@@ -37,7 +37,8 @@ export const IssueSchema = z.object({
   severity: z.enum(["critical", "warning", "info"]),
   confidence: z.number().min(0).max(1),
   pageIndex: z.number().min(0),
-  rect: IssueRectSchema,
+  rect: IssueRectSchema.optional(),
+  searchText: z.string().optional(), // Text to search for when bbox is not available
   foundValue: z.string().optional(),
   expectedValue: z.string().optional(),
   formFieldName: z.string().optional(),
