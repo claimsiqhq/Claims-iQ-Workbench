@@ -831,752 +831,446 @@ function Workbench() {
       .replace(/\b\w/g, (l) => l.toUpperCase());
   };
 
+  const pendingValidationCount = crossDocValidations.filter((v) => v.status === "pending").length;
+  const hasClaims = claims && claims.length > 0;
+  const hasDocuments = documents && documents.length > 0;
+
   return (
     <div className="h-screen flex flex-col bg-background relative">
-      {/* Global Drop Overlay */}
       {globalDragging && (
         <div 
           className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center"
           data-testid="global-drop-overlay"
         >
-          <div className="bg-card border-2 border-dashed border-primary rounded-2xl p-12 shadow-2xl max-w-md mx-4 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex flex-col items-center text-center space-y-4">
-              <div className="p-6 rounded-full bg-primary/10 animate-pulse">
-                <FileUp className="h-12 w-12 text-primary" />
+          <div className="bg-card border-2 border-dashed border-primary rounded-xl p-10 shadow-2xl max-w-sm mx-4">
+            <div className="flex flex-col items-center text-center gap-3">
+              <div className="p-4 rounded-full bg-primary/10">
+                <FileUp className="h-8 w-8 text-primary" />
               </div>
-              <div>
-                <h3 className="text-xl font-semibold text-foreground">Drop your file here</h3>
-                <p className="text-sm text-muted-foreground mt-2">
-                  PDF documents or JSON correction files
-                </p>
-              </div>
+              <p className="text-lg font-semibold">Drop files here</p>
+              <p className="text-sm text-muted-foreground">PDF or JSON correction files</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Schema Setup Warning */}
       {showSchemaWarning && (
-        <div className="bg-amber-50 dark:bg-amber-950/20 border-b border-amber-200 dark:border-amber-800 px-6 py-3">
-          <div className="flex items-center gap-3 text-amber-800 dark:text-amber-200">
-            <AlertTriangle className="h-5 w-5 shrink-0" />
-            <span className="text-sm">
-              <strong>Database setup required:</strong> Run the SQL schema in your Supabase SQL Editor. 
-              Open <code className="bg-amber-100 dark:bg-amber-900/50 px-1.5 py-0.5 rounded text-xs font-mono">supabase/schema.sql</code> and execute it in your Supabase dashboard.
-            </span>
+        <div className="bg-amber-50 dark:bg-amber-950/20 border-b border-amber-200 dark:border-amber-800 px-4 py-2">
+          <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 text-sm">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span><strong>Setup required:</strong> Run <code className="bg-amber-100 dark:bg-amber-900/50 px-1 rounded text-xs font-mono">supabase/schema.sql</code> in your Supabase SQL Editor.</span>
           </div>
         </div>
       )}
       
-      {/* Claims IQ Header */}
-      <header className="border-b border-[#E3DFE8] bg-white shadow-sm">
-        <div className="px-4 md:px-6 py-3">
-          <div className="flex flex-wrap items-center gap-3 md:gap-6">
-            {/* Claims IQ Brand */}
-            <div className="flex items-center gap-3 shrink-0">
-              <img
-                src="/claims-iq-logo.png"
-                alt="Claims IQ"
-                className="h-8 w-auto object-contain"
-              />
-              <div className="hidden lg:block border-l border-[#E3DFE8] pl-3">
-                <h1 className="font-display font-extrabold text-[#342A4F] tracking-tight text-base">
-                  Claims IQ
-                </h1>
-                <p className="text-[#7763B7] font-sans text-xs font-medium">Correction Workbench</p>
-              </div>
+      <header className="border-b bg-white shadow-sm shrink-0">
+        <div className="h-auto min-h-[56px] px-4 py-2 flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2.5 shrink-0">
+            <img src="/claims-iq-logo.png" alt="Claims IQ" className="h-7 w-auto" />
+            <div className="hidden md:block">
+              <h1 className="font-display font-bold text-[#342A4F] text-sm leading-tight">Claims IQ</h1>
+              <p className="text-[10px] text-[#7763B7] font-medium leading-tight">Correction Workbench</p>
             </div>
+          </div>
 
-            <Separator orientation="vertical" className="h-8 bg-[#E3DFE8] hidden md:block" />
+          <Separator orientation="vertical" className="h-6 hidden md:block" />
 
-            {/* Document Selection */}
-            <div className="flex flex-wrap items-center gap-2 md:gap-3 flex-1 min-w-0">
-              <div className="flex items-center gap-1.5">
-                <Label className="text-xs font-semibold text-[#342A4F] uppercase tracking-wider shrink-0 hidden sm:block">Claim</Label>
-                <Select value={selectedClaimId} onValueChange={setSelectedClaimId} data-testid="select-claim">
-                  <SelectTrigger className="h-9 w-[120px] md:w-[140px] rounded-lg border-2 border-[#E3DFE8] bg-[#F0EDF4]/50 font-sans text-sm focus:border-[#7763B7] focus:ring-[#7763B7]/20">
-                    <SelectValue placeholder="Claim..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {claims?.map((claim) => (
-                      <SelectItem key={claim.claimId} value={claim.claimId} data-testid={`claim-${claim.claimId}`}>
-                        {claim.claimNumber || claim.claimId}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <Select value={selectedClaimId} onValueChange={setSelectedClaimId} data-testid="select-claim">
+              <SelectTrigger className="h-8 w-[140px] sm:w-[160px] text-sm" aria-label="Select claim" data-testid="trigger-claim">
+                <SelectValue placeholder={hasClaims ? "Select claim..." : "No claims yet"} />
+              </SelectTrigger>
+              <SelectContent>
+                {!hasClaims ? (
+                  <div className="px-3 py-6 text-center text-sm text-muted-foreground" data-testid="text-empty-claims">
+                    <Upload className="h-5 w-5 mx-auto mb-2 opacity-50" />
+                    <p className="font-medium">No claims found</p>
+                    <p className="text-xs mt-1">Upload a PDF to create one</p>
+                  </div>
+                ) : (
+                  claims.map((claim) => (
+                    <SelectItem key={claim.claimId} value={claim.claimId} data-testid={`claim-${claim.claimId}`}>
+                      {claim.claimNumber || claim.claimId}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
 
-              <ChevronRight className="h-4 w-4 text-[#9D8BBF] shrink-0 hidden sm:block" />
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 hidden sm:block" />
 
-              <div className="flex items-center gap-1.5">
-                <Label className="text-xs font-semibold text-[#342A4F] uppercase tracking-wider shrink-0 hidden sm:block">Doc</Label>
-                <Select 
-                  value={selectedDocumentId} 
-                  onValueChange={setSelectedDocumentId} 
-                  disabled={!selectedClaimId}
-                  data-testid="select-document"
-                >
-                  <SelectTrigger className="h-9 w-[120px] md:w-[160px] rounded-lg border-2 border-[#E3DFE8] bg-[#F0EDF4]/50 font-sans text-sm focus:border-[#7763B7] focus:ring-[#7763B7]/20">
-                    <SelectValue placeholder="Document..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {documents?.map((doc) => (
-                      <SelectItem key={doc.documentId} value={doc.documentId} data-testid={`document-${doc.documentId}`}>
-                        {doc.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <Select 
+              value={selectedDocumentId} 
+              onValueChange={setSelectedDocumentId} 
+              disabled={!selectedClaimId}
+              data-testid="select-document"
+            >
+              <SelectTrigger className="h-8 w-[140px] sm:w-[180px] text-sm" aria-label="Select document" data-testid="trigger-document">
+                <SelectValue placeholder={!selectedClaimId ? "Pick claim first" : (hasDocuments ? "Select document..." : "No documents")} />
+              </SelectTrigger>
+              <SelectContent>
+                {!hasDocuments ? (
+                  <div className="px-3 py-4 text-center text-sm text-muted-foreground" data-testid="text-empty-documents">
+                    <p>No documents for this claim</p>
+                  </div>
+                ) : (
+                  documents.map((doc) => (
+                    <SelectItem key={doc.documentId} value={doc.documentId} data-testid={`document-${doc.documentId}`}>
+                      {doc.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
 
-              <Button 
-                onClick={handleLoadDocument} 
-                disabled={!selectedClaimId || !selectedDocumentId || isDocumentLoaded}
-                data-testid="button-load"
-                className="h-9 px-3 md:px-4"
+            <Button 
+              onClick={handleLoadDocument} 
+              disabled={!selectedClaimId || !selectedDocumentId || isDocumentLoaded}
+              data-testid="button-load"
+              size="sm"
+              className="h-8 px-3 text-sm"
+            >
+              <FileCheck className="h-3.5 w-3.5 mr-1.5" />
+              Load
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            {isDocumentLoaded && selectedDocumentId && (
+              <Button
+                variant="ghost"
                 size="sm"
+                className="h-8 w-8 p-0 relative"
+                onClick={() => {
+                  if (!showAnnotationPanel) setShowValidationPanel(false);
+                  setShowAnnotationPanel(!showAnnotationPanel);
+                }}
+                data-testid="button-annotations"
+                title="Annotations"
               >
-                <FileCheck className="h-4 w-4 md:mr-1.5" />
-                <span className="hidden md:inline">Load</span>
+                <Highlighter className="h-4 w-4" />
+                {annotations.length > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 h-4 min-w-[16px] rounded-full bg-primary text-[10px] text-white flex items-center justify-center px-0.5">
+                    {annotations.length}
+                  </span>
+                )}
               </Button>
-            </div>
+            )}
 
-            {/* Right Actions */}
-            <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-              {/* Annotations Button */}
-              {isDocumentLoaded && selectedDocumentId && (
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-9 w-9 shrink-0 relative"
-                  onClick={() => {
-                    if (!showAnnotationPanel) setShowValidationPanel(false);
-                    setShowAnnotationPanel(!showAnnotationPanel);
-                  }}
-                  data-testid="button-annotations"
-                  aria-label="Annotations"
-                >
-                  <Highlighter className="h-4 w-4" />
-                  {annotations.length > 0 && (
-                    <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[10px]">
-                      {annotations.length}
-                    </Badge>
-                  )}
+            {selectedClaimId && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 relative"
+                onClick={() => {
+                  if (!showValidationPanel) setShowAnnotationPanel(false);
+                  setShowValidationPanel(!showValidationPanel);
+                }}
+                data-testid="button-cross-doc-validation"
+                title="Cross-Document Validation"
+              >
+                <AlertTriangle className="h-4 w-4" />
+                {pendingValidationCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 h-4 min-w-[16px] rounded-full bg-red-500 text-[10px] text-white flex items-center justify-center px-0.5">
+                    {pendingValidationCount}
+                  </span>
+                )}
+              </Button>
+            )}
+
+            <Separator orientation="vertical" className="h-5 mx-1 hidden sm:block" />
+
+            <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" className="h-8 gap-1.5 text-sm" data-testid="button-upload">
+                  <Upload className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Upload</span>
                 </Button>
-              )}
-
-              {/* Cross-Document Validation Button */}
-              {selectedClaimId && (
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-9 w-9 shrink-0 relative"
-                  onClick={() => {
-                    if (!showValidationPanel) setShowAnnotationPanel(false);
-                    setShowValidationPanel(!showValidationPanel);
-                  }}
-                  data-testid="button-cross-doc-validation"
-                  aria-label="Cross-Document Validation"
-                >
-                  <AlertTriangle className="h-4 w-4" />
-                  {crossDocValidations.filter((v) => v.status === "pending").length > 0 && (
-                    <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[10px] bg-red-500">
-                      {crossDocValidations.filter((v) => v.status === "pending").length}
-                    </Badge>
-                  )}
-                </Button>
-              )}
-
-              {/* Settings Dialog */}
-              <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" data-testid="button-settings" aria-label="Settings">
-                    <Settings className="h-4 w-4" />
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[500px]">
-                  <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                      <Settings className="h-5 w-5" />
-                      Settings
-                    </DialogTitle>
-                    <DialogDescription>
-                      Configure your preferences for the workbench.
-                    </DialogDescription>
-                  </DialogHeader>
-                  
-                  <div className="space-y-6 py-4">
-                    {/* Account Section */}
-                    {user && (
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                          <UserCircle className="h-4 w-4 text-muted-foreground" />
-                          <h4 className="text-sm font-medium">Account</h4>
-                        </div>
-                        <div className="pl-6 space-y-2">
-                          <p className="text-sm text-muted-foreground">{user.email}</p>
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => {
-                              signOut().then(() => setLocation('/login'));
-                              setSettingsDialogOpen(false);
-                            }}
-                            data-testid="button-signout"
-                          >
-                            <LogOut className="h-4 w-4 mr-2" />
-                            Sign Out
-                          </Button>
-                        </div>
-                      </div>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[560px] max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-primary" />
+                    Upload Document
+                  </DialogTitle>
+                  <DialogDescription>
+                    Upload a PDF and optionally a corrections JSON file.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 pt-2">
+                  <div
+                    ref={dropZoneRef}
+                    data-dropzone
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className={cn(
+                      "relative border-2 border-dashed rounded-lg p-8 transition-colors cursor-pointer",
+                      isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/20 bg-muted/20",
+                      !pdfFile && "hover:border-primary/50"
                     )}
-
-                    <Separator />
-
-                    {/* Notification Preferences */}
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <Bell className="h-4 w-4 text-muted-foreground" />
-                        <h4 className="text-sm font-medium">Notifications</h4>
+                    onClick={() => !pdfFile && pdfInputRef.current?.click()}
+                  >
+                    <div className="flex flex-col items-center text-center gap-3">
+                      <div className={cn("p-3 rounded-full", isDragging ? "bg-primary/10" : "bg-muted")}>
+                        <FileUp className={cn("h-6 w-6", isDragging ? "text-primary" : "text-muted-foreground")} />
                       </div>
-                      <div className="pl-6 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="notify-apply" className="text-sm">Notify when correction applied</Label>
-                          <Switch 
-                            id="notify-apply" 
-                            checked={notifyOnApply}
-                            onCheckedChange={(checked) => {
-                              setNotifyOnApply(checked);
-                              localStorage.setItem('settings_notify_apply', String(checked));
-                            }}
-                            data-testid="switch-notify-apply"
-                          />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="notify-reject" className="text-sm">Notify when correction rejected</Label>
-                          <Switch 
-                            id="notify-reject" 
-                            checked={notifyOnReject}
-                            onCheckedChange={(checked) => {
-                              setNotifyOnReject(checked);
-                              localStorage.setItem('settings_notify_reject', String(checked));
-                            }}
-                            data-testid="switch-notify-reject"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <Separator />
-
-                    {/* Display Settings */}
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <Monitor className="h-4 w-4 text-muted-foreground" />
-                        <h4 className="text-sm font-medium">Display</h4>
-                      </div>
-                      <div className="pl-6 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="default-filter" className="text-sm">Default issue filter</Label>
-                          <Select 
-                            value={defaultFilter} 
-                            onValueChange={(value: "all" | "open" | "applied" | "rejected") => {
-                              setDefaultFilter(value);
-                              setFilter(value);
-                              localStorage.setItem('settings_default_filter', value);
-                            }}
-                          >
-                            <SelectTrigger className="w-[120px] h-8" id="default-filter" data-testid="select-default-filter">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All</SelectItem>
-                              <SelectItem value="open">Open</SelectItem>
-                              <SelectItem value="applied">Applied</SelectItem>
-                              <SelectItem value="rejected">Rejected</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="items-per-page" className="text-sm">Issues per page</Label>
-                          <Select 
-                            value={String(itemsPerPage)} 
-                            onValueChange={(value) => {
-                              const num = parseInt(value, 10);
-                              setItemsPerPage(num);
-                              localStorage.setItem('settings_items_per_page', value);
-                            }}
-                          >
-                            <SelectTrigger className="w-[80px] h-8" id="items-per-page" data-testid="select-items-per-page">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="10">10</SelectItem>
-                              <SelectItem value="25">25</SelectItem>
-                              <SelectItem value="50">50</SelectItem>
-                              <SelectItem value="100">100</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                    </div>
-
-                    <Separator />
-
-                    {/* Export Options */}
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <FileDown className="h-4 w-4 text-muted-foreground" />
-                        <h4 className="text-sm font-medium">Export</h4>
-                      </div>
-                      <div className="pl-6 space-y-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          className="w-full justify-start"
-                          onClick={() => {
-                            // Export audit logs as JSON
-                            const logs = JSON.stringify({
-                              exportedAt: new Date().toISOString(),
-                              claimId: selectedClaimId,
-                              documentId: selectedDocumentId,
-                              issueStatuses: Object.fromEntries(issueStatuses),
-                            }, null, 2);
-                            const blob = new Blob([logs], { type: 'application/json' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `audit-log-${selectedClaimId || 'all'}-${new Date().toISOString().split('T')[0]}.json`;
-                            a.click();
-                            URL.revokeObjectURL(url);
-                            toast({ title: "Audit Log Exported", description: "Download started" });
-                          }}
-                          data-testid="button-export-audit"
-                        >
-                          <Download className="h-4 w-4 mr-2" />
-                          Export Audit Log
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          className="w-full justify-start"
-                          onClick={() => {
-                            // Export issues report as CSV
-                            const issues = issueBundle?.issues || [];
-                            const csv = [
-                              ['Issue ID', 'Type', 'Severity', 'Status', 'Label', 'Found Value', 'Expected Value'].join(','),
-                              ...issues.map(issue => [
-                                issue.issueId,
-                                issue.type,
-                                issue.severity,
-                                issueStatuses.get(issue.issueId) || 'OPEN',
-                                `"${(issue.label || '').replace(/"/g, '""')}"`,
-                                `"${(issue.foundValue || '').replace(/"/g, '""')}"`,
-                                `"${(issue.expectedValue || '').replace(/"/g, '""')}"`
-                              ].join(','))
-                            ].join('\n');
-                            const blob = new Blob([csv], { type: 'text/csv' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `issues-report-${selectedClaimId || 'all'}-${new Date().toISOString().split('T')[0]}.csv`;
-                            a.click();
-                            URL.revokeObjectURL(url);
-                            toast({ title: "Report Exported", description: "Download started" });
-                          }}
-                          data-testid="button-export-report"
-                        >
-                          <FileText className="h-4 w-4 mr-2" />
-                          Export Issues Report (CSV)
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
-
-              <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="h-9 gap-1.5 px-3" data-testid="button-upload">
-                    <Upload className="h-4 w-4" />
-                    <span className="hidden sm:inline">Upload</span>
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
-                  <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2 text-xl">
-                      <Sparkles className="h-5 w-5 text-primary" />
-                      Upload & Parse Document
-                    </DialogTitle>
-                    <DialogDescription className="text-base">
-                      Upload a PDF document. Our AI will automatically extract claim information from the first few pages.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-6 py-4">
-                    {/* Drag and Drop Zone */}
-                    <div
-                      ref={dropZoneRef}
-                      data-dropzone
-                      onDragOver={handleDragOver}
-                      onDragLeave={handleDragLeave}
-                      onDrop={handleDrop}
-                      className={cn(
-                        "relative border-2 border-dashed rounded-lg p-12 transition-colors cursor-pointer",
-                        isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/25 bg-muted/30",
-                        !pdfFile && "hover:border-primary/50"
-                      )}
-                      onClick={() => !pdfFile && pdfInputRef.current?.click()}
-                    >
-                      <div className="flex flex-col items-center justify-center text-center space-y-4">
-                        <div className={cn(
-                          "p-5 rounded-full transition-colors",
-                          isDragging ? "bg-primary/10" : "bg-muted"
-                        )}>
-                          <FileUp className={cn(
-                            "h-10 w-10 transition-colors",
-                            isDragging ? "text-primary" : "text-muted-foreground"
-                          )} />
-                        </div>
-                        <div>
-                          <p className="text-base font-medium">
-                            {pdfFile ? pdfFile.name : "Drag & drop PDF here, or click to browse"}
-                          </p>
-                          {!pdfFile && (
-                            <p className="text-sm text-muted-foreground mt-2">
-                              PDF files up to 25MB
-                            </p>
-                          )}
-                        </div>
-                        {!pdfFile && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="mt-2 h-10"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              pdfInputRef.current?.click();
-                            }}
-                          >
-                            Browse Files
-                          </Button>
-                        )}
-                        <Input
-                          ref={pdfInputRef}
-                          type="file"
-                          accept=".pdf,application/pdf"
-                          onChange={handlePdfFileChange}
-                          className="hidden"
-                          data-testid="input-pdf"
-                        />
-                      </div>
-                      {pdfFile && (
-                        <div className="absolute top-3 right-3">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemovePdf();
-                            }}
-                            className="h-9 w-9"
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* JSON File Upload */}
-                    <div className="space-y-3">
-                      <Label htmlFor="json-file" className="text-base font-medium">Corrections JSON (Optional)</Label>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          id="json-file"
-                          type="file"
-                          accept=".json,application/json"
-                          onChange={handleJsonFileChange}
-                          ref={jsonInputRef}
-                          className="flex-1 h-10"
-                          data-testid="input-json"
-                        />
-                        {jsonFile && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={handleRemoveJson}
-                            className="h-10 w-10"
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                      {jsonFile && (
-                        <p className="text-sm text-muted-foreground flex items-center gap-2">
-                          <FileText className="h-4 w-4" />
-                          {jsonFile.name} ({(jsonFile.size / 1024).toFixed(2)} KB)
+                      <div>
+                        <p className="text-sm font-medium">
+                          {pdfFile ? pdfFile.name : "Drop PDF here or click to browse"}
                         </p>
-                      )}
-                    </div>
-
-                    {/* Extracted Info */}
-                    {extractedInfo && (
-                      <Card className="border-primary/20 bg-primary/5">
-                        <CardHeader className="pb-4">
-                          <CardTitle className="text-base flex items-center gap-2">
-                            <Sparkles className="h-4 w-4 text-primary" />
-                            Extracted Information
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="grid grid-cols-2 gap-4 text-sm">
-                            {Object.entries(extractedInfo).filter(([_, v]) => v).map(([key, value]) => (
-                              <div key={key} className="flex flex-col">
-                                <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1">
-                                  {key.replace(/([A-Z])/g, " $1").trim()}
-                                </span>
-                                <span className={cn(
-                                  "font-medium text-foreground",
-                                  key === "claimId" && "font-mono"
-                                )}>
-                                  {String(value)}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )}
-
-                    <Button
-                      onClick={handleUpload}
-                      disabled={!pdfFile || uploadMutation.isPending}
-                      className="w-full h-11"
-                      data-testid="button-upload-submit"
-                    >
-                      {uploadMutation.isPending ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          {uploadStage || "Processing..."}
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="h-4 w-4 mr-2" />
-                          Upload & Parse Document
-                        </>
-                      )}
-                    </Button>
-                    
-                    {uploadMutation.isPending && (
-                      <div className="space-y-2 mt-4">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">{uploadStage}</span>
-                          <span className="font-medium">{uploadProgress}%</span>
-                        </div>
-                        <Progress value={uploadProgress} className="h-2" />
+                        {!pdfFile && <p className="text-xs text-muted-foreground mt-1">Up to 25MB</p>}
                       </div>
+                    </div>
+                    <Input ref={pdfInputRef} type="file" accept=".pdf,application/pdf" onChange={handlePdfFileChange} className="hidden" data-testid="input-pdf" />
+                    {pdfFile && (
+                      <Button type="button" variant="ghost" size="icon" className="absolute top-2 right-2 h-7 w-7" aria-label="Remove PDF file" data-testid="button-remove-pdf" onClick={(e) => { e.stopPropagation(); handleRemovePdf(); }}>
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
                     )}
                   </div>
-                </DialogContent>
-              </Dialog>
-              
-              <Button onClick={handleSave} variant="outline" disabled={!instance} data-testid="button-save" className="h-9 sm:h-10 gap-1 sm:gap-2 px-2 sm:px-3">
-                <Save className="h-4 w-4" />
-                <span className="hidden sm:inline">Save</span>
-              </Button>
-              <Button onClick={handleDownload} variant="outline" disabled={!instance} data-testid="button-download" className="h-9 sm:h-10 gap-1 sm:gap-2 px-2 sm:px-3">
-                <Download className="h-4 w-4" />
-                <span className="hidden sm:inline">Download</span>
-              </Button>
-            </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="json-file" className="text-sm font-medium">Corrections JSON (optional)</Label>
+                    <div className="flex items-center gap-2">
+                      <Input id="json-file" type="file" accept=".json,application/json" onChange={handleJsonFileChange} ref={jsonInputRef} className="flex-1 h-9 text-sm" data-testid="input-json" />
+                      {jsonFile && (
+                        <Button type="button" variant="ghost" size="icon" aria-label="Remove JSON file" data-testid="button-remove-json" onClick={handleRemoveJson} className="h-9 w-9 shrink-0">
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                    {jsonFile && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <FileText className="h-3.5 w-3.5" />
+                        {jsonFile.name} ({(jsonFile.size / 1024).toFixed(1)} KB)
+                      </p>
+                    )}
+                  </div>
+
+                  {extractedInfo && (
+                    <Card className="border-primary/20 bg-primary/5">
+                      <CardHeader className="py-3 px-4">
+                        <CardTitle className="text-sm flex items-center gap-1.5">
+                          <Sparkles className="h-3.5 w-3.5 text-primary" />
+                          Extracted Info
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-4 pb-3">
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          {Object.entries(extractedInfo).filter(([_, v]) => v).map(([key, value]) => (
+                            <div key={key}>
+                              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">{key.replace(/([A-Z])/g, " $1").trim()}</span>
+                              <p className={cn("text-sm font-medium", key === "claimId" && "font-mono")}>{String(value)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  <Button onClick={handleUpload} disabled={!pdfFile || uploadMutation.isPending} className="w-full h-9" data-testid="button-upload-submit">
+                    {uploadMutation.isPending ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{uploadStage || "Processing..."}</>
+                    ) : (
+                      <><Sparkles className="h-4 w-4 mr-2" />Upload & Parse</>
+                    )}
+                  </Button>
+                  
+                  {uploadMutation.isPending && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">{uploadStage}</span>
+                        <span className="font-medium">{uploadProgress}%</span>
+                      </div>
+                      <Progress value={uploadProgress} className="h-1.5" />
+                    </div>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" data-testid="button-more-actions" title="More actions" aria-label="More actions">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuLabel className="text-xs">Document</DropdownMenuLabel>
+                <DropdownMenuItem onClick={handleSave} disabled={!instance} data-testid="button-save">
+                  <Save className="h-4 w-4 mr-2" /> Save
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleDownload} disabled={!instance} data-testid="button-download">
+                  <Download className="h-4 w-4 mr-2" /> Download PDF
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs">Export</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => {
+                    const logs = JSON.stringify({ exportedAt: new Date().toISOString(), claimId: selectedClaimId, documentId: selectedDocumentId, issueStatuses: Object.fromEntries(issueStatuses) }, null, 2);
+                    const blob = new Blob([logs], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a'); a.href = url; a.download = `audit-log-${selectedClaimId || 'all'}-${new Date().toISOString().split('T')[0]}.json`; a.click(); URL.revokeObjectURL(url);
+                    toast({ title: "Exported", description: "Audit log downloaded" });
+                  }}
+                  data-testid="button-export-audit"
+                >
+                  <Download className="h-4 w-4 mr-2" /> Audit Log (JSON)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    const issues = issueBundle?.issues || [];
+                    const csv = [['Issue ID','Type','Severity','Status','Label','Found Value','Expected Value'].join(','), ...issues.map(issue => [issue.issueId,issue.type,issue.severity,issueStatuses.get(issue.issueId)||'OPEN',`"${(issue.label||'').replace(/"/g,'""')}"`,`"${(issue.foundValue||'').replace(/"/g,'""')}"`,`"${(issue.expectedValue||'').replace(/"/g,'""')}"`].join(','))].join('\n');
+                    const blob = new Blob([csv], { type: 'text/csv' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a'); a.href = url; a.download = `issues-${selectedClaimId||'all'}-${new Date().toISOString().split('T')[0]}.csv`; a.click(); URL.revokeObjectURL(url);
+                    toast({ title: "Exported", description: "Issues report downloaded" });
+                  }}
+                  data-testid="button-export-report"
+                >
+                  <FileText className="h-4 w-4 mr-2" /> Issues Report (CSV)
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs">Preferences</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => setLocation('/settings')} data-testid="button-settings">
+                  <Settings className="h-4 w-4 mr-2" /> Settings
+                </DropdownMenuItem>
+                {user && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="text-xs text-muted-foreground cursor-default" disabled>
+                      <User className="h-3.5 w-3.5 mr-2" /> {user.email}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => signOut().then(() => setLocation('/login'))} data-testid="button-signout">
+                      <LogOut className="h-4 w-4 mr-2" /> Sign Out
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {!user && isAuthConfigured && (
+                  <DropdownMenuItem onClick={() => setLocation('/login')}>
+                    <LogIn className="h-4 w-4 mr-2" /> Sign In
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden bg-[#F0EDF4]">
-        {/* Issues Sidebar */}
-        <aside className="w-full lg:w-[420px] border-b lg:border-b-0 lg:border-r border-[#E3DFE8] bg-white flex flex-col shadow-sm max-h-[40vh] lg:max-h-none">
-          <div className="p-4 lg:p-6 border-b border-[#E3DFE8] bg-[#F0E6FA]/30">
-            <div className="flex items-center justify-between mb-3 lg:mb-5">
-              <h2 className="font-display font-bold text-[#342A4F] text-base lg:text-lg">Issues</h2>
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+        <aside className="w-full lg:w-[340px] xl:w-[380px] border-b lg:border-b-0 lg:border-r bg-card flex flex-col max-h-[35vh] lg:max-h-none">
+          <div className="px-3 py-2.5 border-b bg-muted/30">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="font-display font-semibold text-foreground text-sm">Issues</h2>
               {issueBundle && (
-                <Badge variant="secondary" className="text-sm px-2.5 py-1">
-                  {filteredIssues.length} of {issueCounts.all}
-                </Badge>
+                <span className="text-xs text-muted-foreground">{filteredIssues.length}/{issueCounts.all}</span>
               )}
             </div>
             <Tabs value={filter} onValueChange={(v) => setFilter(v as any)} className="w-full">
-              <TabsList className="grid w-full grid-cols-4 h-10">
-                <TabsTrigger value="all" className="text-sm" data-testid="filter-all">
-                  All ({issueCounts.all})
-                </TabsTrigger>
-                <TabsTrigger value="open" className="text-sm" data-testid="filter-open">
-                  Open ({issueCounts.open})
-                </TabsTrigger>
-                <TabsTrigger value="applied" className="text-sm" data-testid="filter-applied">
-                  Applied ({issueCounts.applied})
-                </TabsTrigger>
-                <TabsTrigger value="rejected" className="text-sm" data-testid="filter-rejected">
-                  Rejected ({issueCounts.rejected})
-                </TabsTrigger>
+              <TabsList className="grid w-full grid-cols-4 h-7">
+                <TabsTrigger value="all" className="text-xs px-1" data-testid="filter-all">All {issueCounts.all > 0 && `(${issueCounts.all})`}</TabsTrigger>
+                <TabsTrigger value="open" className="text-xs px-1" data-testid="filter-open">Open {issueCounts.open > 0 && `(${issueCounts.open})`}</TabsTrigger>
+                <TabsTrigger value="applied" className="text-xs px-1" data-testid="filter-applied">Done {issueCounts.applied > 0 && `(${issueCounts.applied})`}</TabsTrigger>
+                <TabsTrigger value="rejected" className="text-xs px-1" data-testid="filter-rejected">Skipped {issueCounts.rejected > 0 && `(${issueCounts.rejected})`}</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
 
           <ScrollArea className="flex-1">
-            <div className="p-4 lg:p-6 space-y-3 lg:space-y-4">
+            <div className="p-2.5 space-y-2">
               {!isDocumentLoaded ? (
-                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-                  <div className="p-5 rounded-full bg-muted mb-5">
-                    <FileText className="h-10 w-10 text-muted-foreground" />
-                  </div>
-                  <p className="text-base font-medium text-foreground mb-2">No document loaded</p>
-                  <p className="text-sm text-muted-foreground">
-                    Select a claim and document, then click Load to view issues
+                <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                  <FileText className="h-8 w-8 text-muted-foreground/40 mb-3" />
+                  <p className="text-sm font-medium text-muted-foreground">No document loaded</p>
+                  <p className="text-xs text-muted-foreground/70 mt-1 max-w-[200px]">
+                    {hasClaims
+                      ? "Select a claim and document, then click Load"
+                      : "Upload a PDF to get started"}
                   </p>
+                  {!hasClaims && (
+                    <Button size="sm" variant="outline" className="mt-4 h-7 text-xs" onClick={() => setUploadDialogOpen(true)}>
+                      <Upload className="h-3 w-3 mr-1.5" /> Upload PDF
+                    </Button>
+                  )}
                 </div>
               ) : filteredIssues.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-                  <div className="p-5 rounded-full bg-green-50 dark:bg-green-950/30 mb-5">
-                    <CheckCircle2 className="h-10 w-10 text-green-600 dark:text-green-400" />
-                  </div>
-                  <p className="text-base font-medium text-foreground mb-2">No issues found</p>
-                  <p className="text-sm text-muted-foreground">
-                    {filter === "all" 
-                      ? "This document has no issues to correct"
-                      : `No ${filter} issues found`}
+                <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                  <CheckCircle2 className="h-8 w-8 text-green-500/60 mb-3" />
+                  <p className="text-sm font-medium text-muted-foreground">All clear</p>
+                  <p className="text-xs text-muted-foreground/70 mt-1">
+                    {filter === "all" ? "No issues detected" : `No ${filter} issues`}
                   </p>
                 </div>
               ) : (
                 filteredIssues.map((issue) => {
                   const statusInfo = getStatusBadge(issue.issueId);
                   const status = issueStatuses.get(issue.issueId) || "OPEN";
-                  const StatusIcon = statusInfo.icon;
                   const SeverityIcon = getSeverityIcon(issue.severity);
                   
                   return (
-                    <Card 
+                    <div 
                       key={issue.issueId} 
                       className={cn(
-                        "cursor-pointer transition-all hover:shadow-lg border-l-4 shadow-sm",
-                        status === "OPEN" && "border-l-primary",
-                        status === "APPLIED" && "border-l-green-500",
-                        status === "REJECTED" && "border-l-gray-400"
+                        "rounded-lg border p-3 cursor-pointer transition-all hover:shadow-md",
+                        "border-l-[3px]",
+                        status === "OPEN" && "border-l-primary bg-card",
+                        status === "APPLIED" && "border-l-green-500 bg-green-50/30 dark:bg-green-950/10",
+                        status === "MANUAL" && "border-l-blue-500 bg-blue-50/30 dark:bg-blue-950/10",
+                        status === "REJECTED" && "border-l-gray-300 bg-gray-50/30 dark:bg-gray-950/10 opacity-70"
                       )}
                       onClick={() => handleIssueClick(issue)}
                       data-testid={`issue-${issue.issueId}`}
                     >
-                      <CardHeader className="pb-4">
-                        <div className="flex items-start justify-between gap-3 mb-3">
-                          <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
-                            <SeverityIcon className={cn("h-5 w-5 flex-shrink-0", getSeverityColor(issue.severity).split(" ")[0])} />
-                            <Badge 
-                              variant={statusInfo.variant} 
-                              className="text-sm flex items-center gap-1.5 px-2.5 py-1" 
-                              data-testid={`status-${issue.issueId}`}
-                            >
-                              <StatusIcon className="h-3.5 w-3.5" />
-                              {statusInfo.label}
-                            </Badge>
-                            {/* Correction Type Badge */}
-                            {getCorrectionTypeIcon(issue.type) && (
-                              <Badge variant="outline" className="text-xs flex items-center gap-1">
-                                {React.createElement(getCorrectionTypeIcon(issue.type)!, { className: "h-3 w-3" })}
-                                {formatCorrectionType(issue.type)}
-                              </Badge>
-                            )}
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                          <SeverityIcon className={cn("h-4 w-4 shrink-0", getSeverityColor(issue.severity).split(" ")[0])} />
+                          <span className="text-sm font-medium truncate">{issue.label || formatCorrectionType(issue.type)}</span>
+                        </div>
+                        <Badge 
+                          variant="outline" 
+                          className={cn("text-[10px] px-1.5 py-0 h-5 shrink-0", getSeverityColor(issue.severity))}
+                          data-testid={`status-${issue.issueId}`}
+                        >
+                          {issue.severity}
+                        </Badge>
+                      </div>
+
+                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground mb-2">
+                        <span>Page {issue.pageIndex + 1}</span>
+                        <span>{Math.round(issue.confidence * 100)}%</span>
+                        <span className="capitalize">{statusInfo.label}</span>
+                      </div>
+
+                      {issue.foundValue && issue.expectedValue && (
+                        <div className="rounded bg-muted/50 border p-2 space-y-1 text-xs mb-2">
+                          <div className="flex gap-2">
+                            <span className="text-muted-foreground w-14 shrink-0">Found:</span>
+                            <span className="font-mono text-foreground break-all">{issue.foundValue}</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Badge 
-                              variant={issue.severity === "critical" ? "destructive" : "outline"} 
-                              className={cn("text-sm px-2.5 py-1", getSeverityColor(issue.severity))}
-                            >
-                              {issue.severity}
-                            </Badge>
+                          <div className="flex gap-2">
+                            <span className="text-muted-foreground w-14 shrink-0">Fix:</span>
+                            <span className="font-mono text-green-600 dark:text-green-400 break-all font-medium">{issue.expectedValue}</span>
                           </div>
                         </div>
-                        <CardTitle className="text-base leading-snug">
-                          {issue.label || issue.type}
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="pt-0 space-y-4">
-                        <div className="flex items-center gap-5 text-sm text-muted-foreground flex-wrap">
-                          <span className="flex items-center gap-1.5">
-                            <FileText className="h-4 w-4" />
-                            Page {issue.pageIndex + 1}
-                          </span>
-                          <span className="flex items-center gap-1.5">
-                            <Info className="h-4 w-4" />
-                            {Math.round(issue.confidence * 100)}% confidence
-                          </span>
-                          {/* Dual Location Indicator - Note: old Issue schema doesn't have search_text, but we show if available */}
-                          {issue.rect && (
-                            <span className="flex items-center gap-1.5" title="Has precise bbox location">
-                              <Search className="h-3.5 w-3.5 text-muted-foreground" />
-                              <span className="text-xs">Located</span>
-                            </span>
+                      )}
+
+                      {status === "OPEN" && (
+                        <div className="flex gap-1.5">
+                          {issue.suggestedFix.strategy === "auto" && (
+                            <Button size="sm" className="h-7 text-xs flex-1" onClick={(e) => { e.stopPropagation(); handleApplySuggestedFix(issue); }} data-testid={`button-apply-${issue.issueId}`}>
+                              <CheckCircle2 className="h-3 w-3 mr-1" /> Apply
+                            </Button>
                           )}
+                          <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={(e) => { e.stopPropagation(); handleManualEdit(issue); }} data-testid={`button-manual-${issue.issueId}`} title="Manual edit">
+                            <Edit3 className="h-3 w-3" />
+                          </Button>
+                          <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={(e) => { e.stopPropagation(); handleReject(issue); }} data-testid={`button-reject-${issue.issueId}`} title="Reject">
+                            <XCircle className="h-3 w-3" />
+                          </Button>
                         </div>
-
-                        {issue.foundValue && issue.expectedValue && (
-                          <div className="space-y-3 p-4 rounded-lg bg-muted/50 border">
-                            <div className="flex items-start gap-3">
-                              <span className="text-sm text-muted-foreground min-w-[70px] font-medium">Found:</span>
-                              <span className="text-sm font-mono flex-1 break-all text-foreground">{issue.foundValue}</span>
-                            </div>
-                            <div className="flex items-start gap-3">
-                              <span className="text-sm text-muted-foreground min-w-[70px] font-medium">Expected:</span>
-                              <span className="text-sm font-mono flex-1 break-all text-green-600 dark:text-green-400 font-medium">{issue.expectedValue}</span>
-                            </div>
-                          </div>
-                        )}
-
-                        {status === "OPEN" && (
-                          <div className="flex gap-2 pt-2">
-                            {issue.suggestedFix.strategy === "auto" && (
-                              <Button
-                                className="h-10 text-sm flex-1"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleApplySuggestedFix(issue);
-                                }}
-                                data-testid={`button-apply-${issue.issueId}`}
-                              >
-                                <CheckCircle2 className="h-4 w-4 mr-2" />
-                                Apply Fix
-                              </Button>
-                            )}
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-10 w-10"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleManualEdit(issue);
-                              }}
-                              data-testid={`button-manual-${issue.issueId}`}
-                            >
-                              <Edit3 className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-10 w-10"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleReject(issue);
-                              }}
-                              data-testid={`button-reject-${issue.issueId}`}
-                            >
-                              <XCircle className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
+                      )}
+                    </div>
                   );
                 })
               )}
@@ -1584,76 +1278,51 @@ function Workbench() {
           </ScrollArea>
         </aside>
 
-        {/* Document Viewer */}
-        <main className="flex-1 bg-[#F0E6FA]/20 relative">
+        <main className="flex-1 bg-muted/20 relative overflow-hidden">
           {viewerLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-background/95 backdrop-blur-sm z-10">
-              <div className="flex flex-col items-center gap-6">
-                <div className="relative">
-                  <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
-                  <div className="relative p-5 rounded-full bg-primary/10">
-                    <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                  </div>
-                </div>
-                <div className="text-center">
-                  <p className="text-base font-semibold text-foreground mb-2">Loading document viewer</p>
-                  <p className="text-sm text-muted-foreground">Please wait...</p>
-                </div>
+            <div className="absolute inset-0 flex items-center justify-center bg-background/90 backdrop-blur-sm z-10">
+              <div className="flex flex-col items-center gap-4">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <p className="text-sm text-muted-foreground">Loading viewer...</p>
               </div>
             </div>
           )}
           
           {!isDocumentLoaded ? (
-            <div className="h-full flex items-center justify-center p-6 lg:p-12">
-              <div className="text-center space-y-4 lg:space-y-6 max-w-lg">
-                <div className="p-6 lg:p-8 rounded-full bg-muted mx-auto w-fit">
-                  <FileText className="h-12 w-12 lg:h-16 lg:w-16 text-muted-foreground" />
+            <div className="h-full flex items-center justify-center p-8">
+              <div className="text-center max-w-md">
+                <div className="p-5 rounded-2xl bg-muted/50 mx-auto w-fit mb-6">
+                  <FileText className="h-12 w-12 text-muted-foreground/40" />
                 </div>
-                <div>
-                  <h3 className="text-lg lg:text-xl font-semibold text-foreground mb-2 lg:mb-3">Ready to begin</h3>
-                  <p className="text-sm lg:text-base text-muted-foreground leading-relaxed">
-                    Select a claim and document from the header, then click Load to start reviewing and correcting issues.
-                  </p>
-                </div>
+                <h3 className="text-lg font-semibold text-foreground mb-2">Ready to review</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed mb-6">
+                  {hasClaims 
+                    ? "Select a claim and document from the toolbar above, then click Load to begin reviewing."
+                    : "Upload a PDF document to get started. You can also include a corrections JSON file for automated issue detection."}
+                </p>
+                {!hasClaims && (
+                  <Button onClick={() => setUploadDialogOpen(true)} className="h-9" data-testid="button-upload-empty">
+                    <Upload className="h-4 w-4 mr-2" /> Upload Document
+                  </Button>
+                )}
               </div>
             </div>
           ) : (
             <div className="h-full flex">
-              <div 
-                ref={containerRef} 
-                className="flex-1 h-full"
-                data-testid="viewer-container"
-              />
+              <div ref={containerRef} className="flex-1 h-full" data-testid="viewer-container" />
               
-              {/* Annotation Panel (slide-out) */}
               {showAnnotationPanel && isDocumentLoaded && selectedDocumentId && (
                 <>
-                  <div 
-                    className="fixed inset-0 bg-black/30 z-10 sm:hidden" 
-                    onClick={() => setShowAnnotationPanel(false)}
-                    aria-hidden="true"
-                  />
-                  <div className="w-full sm:w-[320px] lg:w-[380px] fixed sm:absolute sm:relative inset-y-0 right-0 sm:top-0 sm:h-full border-l border-[#E3DFE8] bg-white flex flex-col shadow-lg z-20">
-                    <div className="p-4 border-b border-[#E3DFE8] flex items-center justify-between">
-                      <h3 className="font-display font-semibold text-[#342A4F]">Annotations</h3>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => setShowAnnotationPanel(false)}
-                      >
-                        <X className="h-4 w-4" />
+                  <div className="fixed inset-0 bg-black/20 z-10 lg:hidden" onClick={() => setShowAnnotationPanel(false)} />
+                  <div className="w-[300px] lg:w-[320px] fixed lg:relative inset-y-0 right-0 border-l bg-card flex flex-col shadow-lg z-20">
+                    <div className="h-10 px-3 border-b flex items-center justify-between shrink-0">
+                      <h3 className="font-semibold text-sm">Annotations</h3>
+                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setShowAnnotationPanel(false)}>
+                        <X className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                     <div className="flex-1 overflow-hidden">
-                      <AnnotationPanel
-                        adapter={pdfAdapter}
-                        documentId={selectedDocumentId}
-                        annotations={annotations}
-                        onCreateAnnotation={handleCreateAnnotation}
-                        onDeleteAnnotation={handleDeleteAnnotation}
-                        currentPage={currentPage}
-                      />
+                      <AnnotationPanel adapter={pdfAdapter} documentId={selectedDocumentId} annotations={annotations} onCreateAnnotation={handleCreateAnnotation} onDeleteAnnotation={handleDeleteAnnotation} currentPage={currentPage} />
                     </div>
                   </div>
                 </>
@@ -1662,45 +1331,23 @@ function Workbench() {
           )}
         </main>
 
-        {/* Cross-Document Validation Panel (slide-out from right) */}
         {showValidationPanel && selectedClaimId && (
           <>
-            <div 
-              className="fixed inset-0 bg-black/30 z-10 sm:hidden" 
-              onClick={() => setShowValidationPanel(false)}
-              aria-hidden="true"
-            />
-            <div className="w-full sm:w-[320px] lg:w-[420px] fixed sm:absolute sm:relative inset-y-0 right-0 sm:top-0 sm:h-full border-l border-[#E3DFE8] bg-white flex flex-col shadow-lg z-20">
-              <div className="p-4 border-b border-[#E3DFE8] flex items-center justify-between">
-                <h3 className="font-display font-semibold text-[#342A4F]">Cross-Document Validation</h3>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs"
-                    onClick={handleTriggerValidation}
-                  >
-                    <Search className="h-3.5 w-3.5 mr-1" />
-                    Validate
+            <div className="fixed inset-0 bg-black/20 z-10 lg:hidden" onClick={() => setShowValidationPanel(false)} />
+            <div className="w-[320px] lg:w-[360px] fixed lg:relative inset-y-0 right-0 border-l bg-card flex flex-col shadow-lg z-20">
+              <div className="h-10 px-3 border-b flex items-center justify-between shrink-0">
+                <h3 className="font-semibold text-sm">Cross-Doc Validation</h3>
+                <div className="flex items-center gap-1">
+                  <Button variant="outline" size="sm" className="h-6 text-[10px] px-2" onClick={handleTriggerValidation}>
+                    <Search className="h-3 w-3 mr-1" /> Validate
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => setShowValidationPanel(false)}
-                  >
-                    <X className="h-4 w-4" />
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setShowValidationPanel(false)}>
+                    <X className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               </div>
               <div className="flex-1 overflow-hidden">
-                <CrossDocumentValidationPanel
-                  claimId={selectedClaimId}
-                  validations={crossDocValidations}
-                  onResolve={handleResolveValidation}
-                  onIgnore={handleIgnoreValidation}
-                  onEscalate={handleEscalateValidation}
-                />
+                <CrossDocumentValidationPanel claimId={selectedClaimId} validations={crossDocValidations} onResolve={handleResolveValidation} onIgnore={handleIgnoreValidation} onEscalate={handleEscalateValidation} />
               </div>
             </div>
           </>
