@@ -362,87 +362,69 @@ function Workbench() {
           for (const issue of issueBundle.issues) {
             if (issueAnnotations.has(issue.issueId)) continue;
             
-            // Need either rect or searchText to create an annotation
-            if (!issue.rect && !issue.searchText) continue;
-            
             try {
-              // Strategy: Use text search to find real positions on the page
-              // This is the correct approach when corrections use search_text-based locations
-              if (issue.searchText) {
-                const searchResults = await instance.search(issue.searchText);
+              let annotationCreated = false;
+              
+              // Primary strategy: ALWAYS try text search first.
+              // Use searchText if available, otherwise fall back to foundValue/expectedValue.
+              // This works even when searchText isn't persisted in DB — foundValue IS stored.
+              const textToSearch = issue.searchText || issue.foundValue || issue.expectedValue;
+              
+              if (textToSearch) {
+                const searchResults = await instance.search(textToSearch);
                 
-                if (searchResults && searchResults.length > 0) {
+                // instance.search() returns Immutable.List — use .size not .length
+                if (searchResults && searchResults.size > 0) {
                   // Find result on the correct page
                   const pageResults = searchResults.filter(
                     (r: any) => r.pageIndex === issue.pageIndex
                   );
-                  const result = pageResults.length > 0 ? pageResults[0] : searchResults[0];
+                  // Immutable.List: use .size and .get(0)
+                  const result = pageResults.size > 0 ? pageResults.get(0) : searchResults.get(0);
                   
-                  if (result && result.rectsOnPage && result.rectsOnPage.length > 0) {
-                    // Use the SDK's built-in highlight via search results
-                    // Create a highlight annotation at the found text location
+                  // rectsOnPage is already Immutable.List<Rect> — use .size not .length
+                  if (result && result.rectsOnPage && result.rectsOnPage.size > 0) {
                     const Annotations = NutrientViewer?.Annotations;
-                    const Geometry = NutrientViewer?.Geometry;
-                    const Immutable = NutrientViewer?.Immutable;
                     
-                    if (Annotations?.HighlightAnnotation && Immutable?.List) {
+                    if (Annotations?.HighlightAnnotation) {
                       try {
-                        const rects = Immutable.List(result.rectsOnPage);
                         const colorObj = await getIssueColor(issue.severity);
                         let color: any = colorObj;
                         if (NutrientViewer?.Color && colorObj) {
                           try { color = new NutrientViewer.Color(colorObj); } catch (_) {}
                         }
                         
+                        // rectsOnPage is already Immutable.List<Rect> — pass directly
                         const annotation = new Annotations.HighlightAnnotation({
                           pageIndex: result.pageIndex,
-                          rects,
+                          rects: result.rectsOnPage,
                           color,
                         });
                         
                         const created = await instance.create(annotation);
                         if (created?.id) {
                           setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, created.id));
-                          continue;
+                          annotationCreated = true;
                         }
                       } catch (highlightErr) {
-                        console.warn(`HighlightAnnotation failed for "${issue.searchText}", trying fallback:`, highlightErr);
-                      }
-                    }
-                    
-                    // Fallback: use NoteAnnotation or TextAnnotation at the found location
-                    if (Annotations && Geometry) {
-                      try {
-                        const firstRect = result.rectsOnPage[0];
-                        const annotation = new Annotations.NoteAnnotation({
-                          pageIndex: result.pageIndex,
-                          boundingBox: firstRect,
-                          text: { value: issue.label || `${issue.foundValue} → ${issue.expectedValue}` },
-                        });
-                        
-                        const created = await instance.create(annotation);
-                        if (created?.id) {
-                          setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, created.id));
-                          continue;
-                        }
-                      } catch (noteErr) {
-                        console.warn("NoteAnnotation fallback also failed:", noteErr);
+                        console.warn(`HighlightAnnotation failed for "${textToSearch}":`, highlightErr);
                       }
                     }
                   }
-                } else {
-                  console.warn(`No search results found for "${issue.searchText}" on page ${issue.pageIndex}`);
                 }
               }
               
-              // Last resort: use bbox rect if available
-              if (issue.rect) {
+              // Fallback: use bbox rect ONLY if text search didn't work
+              // AND the rect has real coordinates (not the fake {left:0, top:0} default)
+              if (!annotationCreated && issue.rect) {
                 let rect = issue.rect;
                 if (typeof rect === 'string') {
                   try { rect = JSON.parse(rect); } catch (_) { continue; }
                 }
                 
-                if (typeof rect.left !== 'number' || typeof rect.top !== 'number') continue;
+                // Skip fake default rects (left:0, top:0 with width:100, height:20)
+                const isFakeRect = rect.left === 0 && rect.top === 0 && rect.width === 100 && rect.height === 20;
+                if (isFakeRect || typeof rect.left !== 'number' || typeof rect.top !== 'number') continue;
                 
                 const Annotations = NutrientViewer?.Annotations;
                 const Geometry = NutrientViewer?.Geometry;
@@ -622,25 +604,28 @@ function Workbench() {
       let annotationId = issueAnnotations.get(issue.issueId);
       
       if (!annotationId) {
-        // Try to create annotation using search_text (primary strategy)
+        // Primary strategy: text search using searchText, foundValue, or expectedValue.
+        // foundValue IS persisted in the DB even when searchText is not.
         const textToSearch = issue.searchText || issue.foundValue || issue.expectedValue;
         
         if (textToSearch) {
           try {
             const searchResults = await instance.search(textToSearch);
             
-            if (searchResults && searchResults.length > 0) {
+            // instance.search() returns Immutable.List — use .size not .length
+            if (searchResults && searchResults.size > 0) {
               // Find results on the target page, fall back to first result
               const pageResults = searchResults.filter(
                 (r: any) => r.pageIndex === issue.pageIndex
               );
-              const result = pageResults.length > 0 ? pageResults[0] : searchResults[0];
+              // Immutable.List: use .size and .get(0)
+              const result = pageResults.size > 0 ? pageResults.get(0) : searchResults.get(0);
               
-              if (result?.rectsOnPage?.length > 0) {
+              // rectsOnPage is already Immutable.List<Rect> — use .size not .length
+              if (result?.rectsOnPage?.size > 0) {
                 const Annotations = NutrientViewer?.Annotations;
-                const Immutable = NutrientViewer?.Immutable;
                 
-                if (Annotations?.HighlightAnnotation && Immutable?.List) {
+                if (Annotations?.HighlightAnnotation) {
                   const colorObj = await getIssueColor(issue.severity);
                   let color: any = colorObj;
                   if (NutrientViewer?.Color && colorObj) {
@@ -648,9 +633,10 @@ function Workbench() {
                   }
                   
                   try {
+                    // rectsOnPage is already Immutable.List<Rect> — pass directly
                     const annotation = new Annotations.HighlightAnnotation({
                       pageIndex: result.pageIndex,
-                      rects: Immutable.List(result.rectsOnPage),
+                      rects: result.rectsOnPage,
                       color,
                     });
                     
@@ -665,8 +651,9 @@ function Workbench() {
                 }
                 
                 // Jump to the found text location regardless of annotation success
+                // rectsOnPage.get(0) for Immutable.List element access
                 try {
-                  await instance.jumpToRect(result.pageIndex, result.rectsOnPage[0]);
+                  await instance.jumpToRect(result.pageIndex, result.rectsOnPage.get(0));
                 } catch (_) {}
               }
             }
@@ -675,7 +662,8 @@ function Workbench() {
           }
         }
         
-        // Fallback: use bbox rect if available and no annotation was created yet
+        // Fallback: use bbox rect ONLY if text search didn't work
+        // AND the rect has real coordinates (not the fake {left:0, top:0} default)
         if (!annotationId && issue.rect) {
           try {
             let rect = issue.rect;
@@ -683,7 +671,10 @@ function Workbench() {
               rect = JSON.parse(rect);
             }
             
-            if (typeof rect.left === 'number' && typeof rect.top === 'number') {
+            // Skip fake default rects
+            const isFakeRect = rect.left === 0 && rect.top === 0 && rect.width === 100 && rect.height === 20;
+            
+            if (!isFakeRect && typeof rect.left === 'number' && typeof rect.top === 'number') {
               const Annotations = NutrientViewer?.Annotations;
               const Geometry = NutrientViewer?.Geometry;
               const Immutable = NutrientViewer?.Immutable;
