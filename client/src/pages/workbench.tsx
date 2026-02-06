@@ -193,8 +193,10 @@ function Workbench() {
         setExtractedInfo(null);
       }, 3000);
       queryClient.invalidateQueries({ queryKey: ["claims"] });
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
       setSelectedClaimId(data.claimId);
       setSelectedDocumentId(data.documentId);
+      setIsDocumentLoaded(true);
     },
     onError: (error: Error) => {
       toast({

@@ -1,0 +1,352 @@
+{
+  "claimId": "01009792907",
+  "claimContext": {
+    "claimNumber": "01009792907",
+    "policyNumber": "35CI505612",
+    "insuredName": "BOBBY SAMPSON",
+    "dateOfLoss": "2025-03-20",
+    "propertyAddress": "799 W LANDAU AVE, Saint Clair, MO 63077-1638"
+  },
+  "documents": [
+    {
+      "documentId": "doc-001-activity",
+      "documentType": "activity_report",
+      "sourceFilename": "_9_Activity_Report.pdf",
+      "pageCount": 2,
+      "corrections": [
+        {
+          "id": "aeb14d66-06b6-487b-8ad2-4e28101281c7",
+          "claim_id": "01009792907",
+          "document_id": "doc-001-activity",
+          "type": "date_error",
+          "severity": "critical",
+          "location": {
+            "search_text": {
+              "text": "3/256/25",
+              "occurrence": 1,
+              "context_before": "Date/Time Of Call: 3/256/25 @ 1:40 pm."
+            }
+          },
+          "found_value": "3/256/25",
+          "expected_value": "3/26/25",
+          "confidence": 0.99,
+          "requires_human_review": false,
+          "recommended_action": "auto_correct",
+          "evidence": {
+            "source_document": "doc-001-activity",
+            "source_field": "Activity Due Date (same entry)",
+            "reasoning": "Invalid date '3/256/25' — the day value '256' is not a valid calendar day. Context from adjacent activity entries confirms this should be March 26, 2025 (matching the Due date of 3/26/2025 on the same entry)."
+          },
+          "status": "pending"
+        },
+        {
+          "id": "e842caeb-5d3d-4e0f-8ffb-e9693f393cd1",
+          "claim_id": "01009792907",
+          "document_id": "doc-001-activity",
+          "type": "phone_format",
+          "severity": "warning",
+          "location": {
+            "search_text": {
+              "text": "469-394-025",
+              "occurrence": 1,
+              "context_before": "Erik Roberts\n469-394-025"
+            }
+          },
+          "found_value": "469-394-025",
+          "expected_value": "469-394-0205",
+          "confidence": 0.98,
+          "requires_human_review": false,
+          "recommended_action": "auto_correct",
+          "evidence": {
+            "source_document": "doc-001-activity",
+            "source_field": "Adjuster contact number (repeated entries)",
+            "reasoning": "Phone number truncated — missing final digit. All other occurrences in this document show '469-394-0205' (appears 4 times on page 1). Standard US phone format requires 10 digits."
+          },
+          "status": "pending"
+        }
+      ],
+      "annotations": [
+        {
+          "id": "50f0b50c-67e0-4f58-8d0e-f449ac82f971",
+          "type": "flag",
+          "location": {
+            "search_text": {
+              "text": "Loss Amount: $0.00",
+              "occurrence": 1
+            }
+          },
+          "text": "Loss Amount shows $0.00 but the associated Invoice (doc-002-invoice) shows RCV Loss of $12,047.30 and Net Payment of $11,154.52. This may indicate the Activity Report was generated before the estimate was completed, but should be verified.",
+          "color": "#FFA500",
+          "created_by": "claims-iq-core",
+          "created_at": "2026-02-06T15:52:28.124Z"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-002-invoice",
+      "documentType": "invoice",
+      "sourceFilename": "_9_Invoice.pdf",
+      "pageCount": 1,
+      "corrections": [],
+      "annotations": [
+        {
+          "id": "b18e154b-3a0d-4d31-90ea-79c43e944874",
+          "type": "comment",
+          "location": {
+            "search_text": {
+              "text": "Attention: Mo",
+              "occurrence": 1
+            }
+          },
+          "text": "Truncated field — 'Attention: Mo' appears incomplete. This may be a data extraction artifact or a truncated name. Verify the intended recipient.",
+          "color": "#FFFF00",
+          "created_by": "claims-iq-core",
+          "created_at": "2026-02-06T15:52:28.124Z"
+        },
+        {
+          "id": "0101eff2-5889-447a-a5bc-8e743e950199",
+          "type": "highlight",
+          "location": {
+            "search_text": {
+              "text": "Ins Company:",
+              "occurrence": 1
+            }
+          },
+          "text": "Insurance company name is blank. Should reference 'American Family Insurance' per FNOL document.",
+          "color": "#FFFF00",
+          "created_by": "claims-iq-core",
+          "created_at": "2026-02-06T15:52:28.124Z"
+        }
+      ]
+    },
+    {
+      "documentId": "doc-003-fnol",
+      "documentType": "fnol",
+      "sourceFilename": "_9_FNOL.pdf",
+      "pageCount": 2,
+      "corrections": [],
+      "annotations": [
+        {
+          "id": "ef00e1d7-1eb1-4f35-a360-291dd1499689",
+          "type": "flag",
+          "location": {
+            "search_text": {
+              "text": "Year Roof Install: 01-01-2003",
+              "occurrence": 1
+            }
+          },
+          "text": "Roof installation date (2003) makes the roof 22 years old at time of loss. This is relevant for depreciation calculations and may trigger ACV-only coverage under some policy endorsements. Ensure estimate reflects appropriate depreciation.",
+          "color": "#FFA500",
+          "created_by": "claims-iq-core",
+          "created_at": "2026-02-06T15:52:28.124Z"
+        },
+        {
+          "id": "8222e55f-8820-44e5-8e1b-c26a28906114",
+          "type": "flag",
+          "location": {
+            "search_text": {
+              "text": "Unable to retrieve Weather",
+              "occurrence": 1
+            }
+          },
+          "text": "Weather verification failed at FNOL intake. Weather data should be retrieved and attached to validate the reported wind damage cause of loss for date 03/20/2025 at the insured location.",
+          "color": "#87CEEB",
+          "created_by": "claims-iq-core",
+          "created_at": "2026-02-06T15:52:28.124Z"
+        },
+        {
+          "id": "90ffd27c-a979-45a0-bb3e-a75810a5ca0e",
+          "type": "highlight",
+          "location": {
+            "search_text": {
+              "text": "Drone eligible at FNOL : No",
+              "occurrence": 1
+            }
+          },
+          "text": "Property was flagged as not drone-eligible at FNOL. Given this is a single-story dwelling with roof-only damage, drone eligibility should be re-evaluated — this is a strong candidate for remote inspection.",
+          "color": "#90EE90",
+          "created_by": "claims-iq-core",
+          "created_at": "2026-02-06T15:52:28.124Z"
+        }
+      ]
+    }
+  ],
+  "crossDocumentValidations": [
+    {
+      "id": "5f974b15-1c6c-43a5-82c4-be50982977b9",
+      "field": "loss_amount",
+      "severity": "warning",
+      "documents": [
+        {
+          "document_id": "doc-001-activity",
+          "document_name": "activity_report",
+          "found_value": "$0.00",
+          "location": {
+            "search_text": {
+              "text": "Loss Amount: $0.00",
+              "occurrence": 1
+            }
+          },
+          "confidence": 1
+        },
+        {
+          "document_id": "doc-002-invoice",
+          "document_name": "invoice",
+          "found_value": "$12,047.30",
+          "location": {
+            "search_text": {
+              "text": "RCV Loss $12,047.30",
+              "occurrence": 1
+            }
+          },
+          "confidence": 1
+        }
+      ],
+      "recommended_action": "flag_for_review",
+      "reasoning": "Loss Amount is $0.00 on the Activity Report but the Invoice shows RCV Loss of $12,047.30. The Activity Report may have been generated before the estimate was finalized. If the Activity Report is the final version, this discrepancy needs resolution.",
+      "status": "pending"
+    },
+    {
+      "id": "b4b4eadb-db4d-4921-aa79-9212508dec27",
+      "field": "adjuster_phone",
+      "severity": "warning",
+      "documents": [
+        {
+          "document_id": "doc-001-activity",
+          "document_name": "activity_report",
+          "found_value": "469-394-0205",
+          "location": {
+            "search_text": {
+              "text": "469-394-0205",
+              "occurrence": 1
+            }
+          },
+          "confidence": 1
+        },
+        {
+          "document_id": "doc-001-activity",
+          "document_name": "activity_report",
+          "found_value": "469-394-025",
+          "location": {
+            "search_text": {
+              "text": "469-394-025",
+              "occurrence": 1
+            }
+          },
+          "confidence": 1
+        }
+      ],
+      "expected_value": "469-394-0205",
+      "recommended_action": "auto_correct",
+      "reasoning": "Adjuster Erik Roberts' phone number is inconsistent within the Activity Report: '469-394-0205' (page 1, 4 occurrences) vs '469-394-025' (page 2, truncated). The 10-digit version is correct.",
+      "status": "pending"
+    },
+    {
+      "id": "3fe5bb6f-9340-423a-95e2-a7ca3f78455e",
+      "field": "claim_number",
+      "severity": "info",
+      "documents": [
+        {
+          "document_id": "doc-001-activity",
+          "document_name": "activity_report",
+          "found_value": "(not present)",
+          "location": {
+            "search_text": {
+              "text": "Adj. File No.:",
+              "occurrence": 1
+            }
+          },
+          "confidence": 1
+        },
+        {
+          "document_id": "doc-002-invoice",
+          "document_name": "invoice",
+          "found_value": "01009792907",
+          "location": {
+            "search_text": {
+              "text": "Ins. Claim #:",
+              "occurrence": 1
+            }
+          },
+          "confidence": 1
+        },
+        {
+          "document_id": "doc-003-fnol",
+          "document_name": "fnol",
+          "found_value": "01009792907",
+          "location": {
+            "search_text": {
+              "text": "Claim Number: 01009792907",
+              "occurrence": 1
+            }
+          },
+          "confidence": 1
+        }
+      ],
+      "expected_value": "01009792907",
+      "recommended_action": "flag_for_review",
+      "reasoning": "The Activity Report does not display a claim number or adjuster file number, while the Invoice and FNOL both reference claim 01009792907. The Activity Report's 'Adj. File No.' field appears blank.",
+      "status": "pending"
+    },
+    {
+      "id": "53c9d8c4-495f-461d-9d41-9f1689e4f03a",
+      "field": "policy_number",
+      "severity": "info",
+      "documents": [
+        {
+          "document_id": "doc-001-activity",
+          "document_name": "activity_report",
+          "found_value": "35CI505612",
+          "location": {
+            "search_text": {
+              "text": "Policy No. : 35CI505612",
+              "occurrence": 1
+            }
+          },
+          "confidence": 1
+        },
+        {
+          "document_id": "doc-002-invoice",
+          "document_name": "invoice",
+          "found_value": "35CI505612",
+          "location": {
+            "search_text": {
+              "text": "Policy:",
+              "occurrence": 1
+            }
+          },
+          "confidence": 1
+        },
+        {
+          "document_id": "doc-003-fnol",
+          "document_name": "fnol",
+          "found_value": "35CI505612",
+          "location": {
+            "search_text": {
+              "text": "Policy Number: 35CI505612",
+              "occurrence": 1
+            }
+          },
+          "confidence": 1
+        }
+      ],
+      "expected_value": "35CI505612",
+      "recommended_action": "informational",
+      "reasoning": "Policy number is consistent across all three documents. No action required.",
+      "status": "pending"
+    }
+  ],
+  "summary": {
+    "totalCorrections": 2,
+    "totalAnnotations": 6,
+    "totalCrossDocFlags": 4,
+    "severityCounts": {
+      "critical": 1,
+      "warning": 3,
+      "info": 8
+    },
+    "confidenceAverage": 0.985
+  },
+  "correctionJobId": "a3f7c2e1-9b4d-4a8e-b6f0-2d1e3c5a7b9d",
+  "generatedAt": "2025-02-05T19:45:00Z"
+}
