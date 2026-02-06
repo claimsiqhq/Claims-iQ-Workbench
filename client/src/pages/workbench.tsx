@@ -391,10 +391,28 @@ function Workbench() {
         const validRect = rect;
 
         try {
-          const color = await getIssueColor(issue.severity);
-          if (!color) {
+          const colorObj = await getIssueColor(issue.severity);
+          if (!colorObj) {
             console.warn(`Could not get color for severity ${issue.severity}`);
             continue;
+          }
+
+          // Try to convert to Color instance if possible, otherwise use plain object
+          let color: any = colorObj;
+          try {
+            const Color = await instance.Color;
+            if (Color && typeof Color === 'function') {
+              try {
+                color = new Color(colorObj.r, colorObj.g, colorObj.b);
+              } catch (e) {
+                // If Color constructor fails, use plain object
+                console.warn("Color constructor failed, using plain object", e);
+                color = colorObj;
+              }
+            }
+          } catch (err) {
+            // Color class not available, use plain object
+            color = colorObj;
           }
 
           const annotation = new Annotations.RectangleAnnotation({
@@ -444,28 +462,49 @@ function Workbench() {
     }
   };
 
-  const getIssueColor = async (severity: string) => {
-    if (!instance) return null;
+  const getIssueColor = async (severity: string): Promise<{ r: number; g: number; b: number } | null> => {
+    // Determine RGB values based on severity (0-255 range, then normalize to 0-1)
+    // Nutrient expects colors in { r, g, b } format with normalized values (0-1)
+    const colorMap: Record<string, { r: number; g: number; b: number }> = {
+      critical: { r: 239/255, g: 68/255, b: 68/255 },   // Red
+      high: { r: 239/255, g: 68/255, b: 68/255 },        // Red
+      warning: { r: 234/255, g: 179/255, b: 8/255 },     // Yellow/Amber
+      medium: { r: 234/255, g: 179/255, b: 8/255 },      // Yellow/Amber
+      info: { r: 59/255, g: 130/255, b: 246/255 },       // Blue
+      low: { r: 59/255, g: 130/255, b: 246/255 },        // Blue
+    };
     
-    try {
-      const Color = await instance.Color;
-      switch (severity?.toLowerCase()) {
-        case "critical":
-        case "high":
-          return new Color(239, 68, 68); // Red
-        case "warning":
-        case "medium":
-          return new Color(234, 179, 8); // Yellow/Amber
-        case "info":
-        case "low":
-          return new Color(59, 130, 246); // Blue
-        default:
-          return new Color(107, 114, 128); // Gray
+    const normalizedSeverity = severity?.toLowerCase() || '';
+    const color = colorMap[normalizedSeverity] || { r: 107/255, g: 114/255, b: 128/255 }; // Gray default
+    
+    // Try to convert to Nutrient Color object if instance is available
+    if (instance) {
+      try {
+        const Color = await instance.Color;
+        if (Color) {
+          // Try creating Color object with normalized values
+          try {
+            return new Color(color.r, color.g, color.b);
+          } catch (e1) {
+            // If that fails, try with 0-255 range
+            try {
+              return new Color(color.r * 255, color.g * 255, color.b * 255);
+            } catch (e2) {
+              // If both fail, return plain object (Nutrient should accept this)
+              console.warn("Color constructor failed, using plain object format", e2);
+              return color;
+            }
+          }
+        }
+      } catch (err) {
+        // If Color is not available, return plain object format
+        console.warn("instance.Color not available, using plain object format", err);
+        return color;
       }
-    } catch (err) {
-      console.error("Failed to create color:", err);
-      return null;
     }
+    
+    // Return plain object format (Nutrient should accept this based on adapter code)
+    return color;
   };
 
   const handleLoadDocument = () => {
@@ -605,11 +644,27 @@ function Workbench() {
         try {
           const Annotations = await instance.Annotations;
           const Geometry = await instance.Geometry;
-          const Color = await instance.Color;
-
-          const color = await getIssueColor(issue.severity);
-          if (!color) {
+          const colorObj = await getIssueColor(issue.severity);
+          if (!colorObj) {
             throw new Error(`Could not get color for severity ${issue.severity}`);
+          }
+
+          // Try to convert to Color instance if possible, otherwise use plain object
+          let color: any = colorObj;
+          try {
+            const Color = await instance.Color;
+            if (Color && typeof Color === 'function') {
+              try {
+                color = new Color(colorObj.r, colorObj.g, colorObj.b);
+              } catch (e) {
+                // If Color constructor fails, use plain object
+                console.warn("Color constructor failed, using plain object", e);
+                color = colorObj;
+              }
+            }
+          } catch (err) {
+            // Color class not available, use plain object
+            color = colorObj;
           }
 
           // Parse rect if it's a string
@@ -725,9 +780,27 @@ function Workbench() {
           try {
             const Annotations = await instance.Annotations;
             const Geometry = await instance.Geometry;
-            const color = await getIssueColor(issue.severity);
+            const colorObj = await getIssueColor(issue.severity);
             
-            if (color) {
+            if (colorObj) {
+              // Try to convert to Color instance if possible, otherwise use plain object
+              let color: any = colorObj;
+              try {
+                const Color = await instance.Color;
+                if (Color && typeof Color === 'function') {
+                  try {
+                    color = new Color(colorObj.r, colorObj.g, colorObj.b);
+                  } catch (e) {
+                    // If Color constructor fails, use plain object
+                    console.warn("Color constructor failed, using plain object", e);
+                    color = colorObj;
+                  }
+                }
+              } catch (err) {
+                // Color class not available, use plain object
+                color = colorObj;
+              }
+              
               // Parse rect if needed
               let rect = issue.rect;
               if (typeof rect === 'string') {
