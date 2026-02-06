@@ -482,6 +482,17 @@ export class SupabaseStorage implements IStorage {
       console.log('[AUDIT]', audit);
       return;
     }
+
+    const actionMap: Record<string, string> = {
+      applied: "AUTO_FIX",
+      manual_edit: "MANUAL_FIX",
+      rejected: "REJECT",
+      reset: "REJECT",
+      AUTO_FIX: "AUTO_FIX",
+      MANUAL_FIX: "MANUAL_FIX",
+      REJECT: "REJECT",
+    };
+    const dbAction = actionMap[audit.action] || "AUTO_FIX";
     
     const { error } = await supabaseAdmin
       .from('audit_logs')
@@ -489,10 +500,10 @@ export class SupabaseStorage implements IStorage {
         claim_id: audit.claimId,
         document_id: audit.documentId,
         issue_id: audit.issueId,
-        action: audit.action,
-        method: audit.method,
-        before_value: audit.beforeValue,
-        after_value: audit.afterValue,
+        action: dbAction,
+        method: audit.method || audit.action || null,
+        before_value: audit.beforeValue || audit.before || null,
+        after_value: audit.afterValue || audit.after || null,
         user_id: userId || audit.userId,
       });
     

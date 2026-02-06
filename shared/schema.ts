@@ -103,7 +103,7 @@ export const AuditLogSchema = z.object({
   claimId: z.string(),
   documentId: z.string(),
   issueId: z.string(),
-  action: z.enum(["applied", "rejected", "manual_edit", "AUTO_FIX", "MANUAL_FIX", "REJECT"]),
+  action: z.enum(["applied", "rejected", "manual_edit", "reset", "AUTO_FIX", "MANUAL_FIX", "REJECT"]),
   method: z.string().optional(),
   before: z.string().optional(),
   after: z.string().optional(),

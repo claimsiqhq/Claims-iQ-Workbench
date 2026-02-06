@@ -147,6 +147,13 @@ export const api = {
     });
   },
 
+  async updateIssueStatus(issueId: string, status: string): Promise<void> {
+    await authenticatedFetch(`${API_BASE}/api/issues/${issueId}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+  },
+
   async uploadDocument(
     claimId: string, 
     file: File, 

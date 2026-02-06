@@ -315,11 +315,10 @@ function Workbench() {
     if (issueBundle?.issues) {
       const newStatuses = new Map<string, IssueStatus>();
       issueBundle.issues.forEach((issue) => {
-        if (!issueStatuses.has(issue.issueId)) {
-          newStatuses.set(issue.issueId, "OPEN");
-        } else {
-          newStatuses.set(issue.issueId, issueStatuses.get(issue.issueId)!);
-        }
+        const serverStatus = (issue.status as IssueStatus) || "OPEN";
+        const validStatuses: IssueStatus[] = ["OPEN", "APPLIED", "MANUAL", "REJECTED"];
+        const status = validStatuses.includes(serverStatus) ? serverStatus : "OPEN";
+        newStatuses.set(issue.issueId, status);
       });
       setIssueStatuses(newStatuses);
     }
@@ -528,17 +527,20 @@ function Workbench() {
       setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "APPLIED"));
       setSelectedIssueId(null);
 
-      await auditMutation.mutateAsync({
-        claimId: selectedClaimId,
-        documentId: selectedDocumentId,
-        issueId: issue.issueId,
-        action: "applied",
-        method: "accepted",
-        before: issue.foundValue || "",
-        after: issue.expectedValue || "",
-        user: username,
-        ts: new Date().toISOString(),
-      });
+      await Promise.all([
+        api.updateIssueStatus(issue.issueId, "APPLIED").catch(() => {}),
+        auditMutation.mutateAsync({
+          claimId: selectedClaimId,
+          documentId: selectedDocumentId,
+          issueId: issue.issueId,
+          action: "applied",
+          method: "accepted",
+          before: issue.foundValue || "",
+          after: issue.expectedValue || "",
+          user: username,
+          ts: new Date().toISOString(),
+        }),
+      ]);
 
       toast({
         title: "Correction Accepted",
@@ -561,6 +563,7 @@ function Workbench() {
     }
     
     setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "MANUAL"));
+    api.updateIssueStatus(issue.issueId, "MANUAL").catch(() => {});
     
     auditMutation.mutate({
       claimId: selectedClaimId,
@@ -585,7 +588,8 @@ function Workbench() {
     }
     
     setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "REJECTED"));
-    setSelectedIssueId(null); // Clear selection after rejecting
+    setSelectedIssueId(null);
+    api.updateIssueStatus(issue.issueId, "REJECTED").catch(() => {});
     
     auditMutation.mutate({
       claimId: selectedClaimId,
@@ -604,6 +608,7 @@ function Workbench() {
 
   const handleResetIssue = (issue: Issue) => {
     setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "OPEN"));
+    api.updateIssueStatus(issue.issueId, "OPEN").catch(() => {});
 
     auditMutation.mutate({
       claimId: selectedClaimId,
