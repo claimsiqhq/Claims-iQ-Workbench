@@ -131,9 +131,6 @@ function Workbench() {
     setShowValidationPanel,
     currentPage,
     setCurrentPage,
-  } = state;
-
-  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
     settingsDialogOpen,
     setSettingsDialogOpen,
     notifyOnApply,
@@ -145,6 +142,8 @@ function Workbench() {
     itemsPerPage,
     setItemsPerPage,
   } = state;
+
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
 
   const issuesPanelRef = useReactRef<ImperativePanelHandle>(null);
 
