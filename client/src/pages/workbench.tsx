@@ -1655,7 +1655,7 @@ function Workbench() {
             </div>
           ) : (
             <div className="h-full flex">
-              <div ref={containerRef} className="flex-1 h-full" data-testid="viewer-container" />
+              <div ref={containerRef} className="flex-1 h-full relative" data-testid="viewer-container" />
               
               {showAnnotationPanel && isDocumentLoaded && selectedDocumentId && (
                 <>
