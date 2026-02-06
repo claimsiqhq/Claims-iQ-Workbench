@@ -413,7 +413,16 @@ function Workbench() {
               const geometryRect = new Geometry.Rect(rect);
               
               // Use plain object format like the adapter does (not Color instance)
-              const color = colorObj; // { r, g, b } format with normalized values
+              let color = colorObj; // { r, g, b } format with normalized values
+              
+              // If using global module, wrap in Color instance
+              if (NutrientViewer && NutrientViewer.Color) {
+                try {
+                  color = new NutrientViewer.Color(colorObj);
+                } catch (e) {
+                  console.warn("Failed to create Color instance:", e);
+                }
+              }
               
               console.log(`Creating highlight annotation for issue ${issue.issueId}:`, {
                 pageIndex: issue.pageIndex,
@@ -723,9 +732,19 @@ function Workbench() {
           const geometryRect = new Geometry.Rect(rect);
           console.log(`🔵 Geometry.Rect created:`, geometryRect);
           
-          // Use plain object format like the adapter does (not Color instance)
-          const color = colorObj; // { r, g, b } format with normalized values
-          console.log(`🔵 Using color:`, color);
+              // Use plain object format like the adapter does (not Color instance)
+              let color = colorObj; // { r, g, b } format with normalized values
+              
+              // If using global module, wrap in Color instance
+              if (NutrientViewer && NutrientViewer.Color) {
+                try {
+                  color = new NutrientViewer.Color(colorObj);
+                } catch (e) {
+                  console.warn("Failed to create Color instance:", e);
+                }
+              }
+              
+              console.log(`🔵 Using color:`, color);
           
           // Create highlight annotation exactly like the adapter does
           console.log(`🔵 Creating HighlightAnnotation with:`, {

@@ -13,6 +13,7 @@ export class NutrientAdapter implements PDFProcessorAdapter {
   private instance: any;
   private Annotations: any;
   private Geometry: any;
+  private Color: any;
 
   async initialize(instance: any, module?: any): Promise<void> {
     this.instance = instance;
@@ -26,6 +27,7 @@ export class NutrientAdapter implements PDFProcessorAdapter {
       console.log("✅ NutrientAdapter: Using provided NutrientViewer module");
       this.Annotations = module.Annotations;
       this.Geometry = module.Geometry;
+      this.Color = module.Color;
     }
 
     // Fallback to instance if module not provided or properties missing
@@ -34,6 +36,9 @@ export class NutrientAdapter implements PDFProcessorAdapter {
     }
     if (!this.Geometry && instance.Geometry) {
       this.Geometry = await instance.Geometry;
+    }
+    if (!this.Color && instance.Color) {
+      this.Color = await instance.Color;
     }
 
     // If still missing, try waiting (legacy fallback)
@@ -48,6 +53,9 @@ export class NutrientAdapter implements PDFProcessorAdapter {
           }
           if (!this.Geometry) {
             this.Geometry = await instance.Geometry;
+          }
+          if (!this.Color) {
+            this.Color = await instance.Color;
           }
           
           if (this.Annotations && this.Geometry) {
@@ -66,7 +74,8 @@ export class NutrientAdapter implements PDFProcessorAdapter {
     if (!this.Annotations || !this.Geometry) {
       console.warn("⚠️ NutrientAdapter: Annotations or Geometry modules not fully loaded. Some features may fail.", {
         hasAnnotations: !!this.Annotations,
-        hasGeometry: !!this.Geometry
+        hasGeometry: !!this.Geometry,
+        hasColor: !!this.Color
       });
     } else {
       console.log("Available annotation types:", Object.keys(this.Annotations).slice(0, 10));
@@ -80,6 +89,7 @@ export class NutrientAdapter implements PDFProcessorAdapter {
     this.instance = null;
     this.Annotations = null;
     this.Geometry = null;
+    this.Color = null;
   }
 
   async applyTextCorrection(correction: Correction): Promise<CorrectionResult> {
@@ -540,9 +550,15 @@ export class NutrientAdapter implements PDFProcessorAdapter {
   // Helper: Convert hex color to Nutrient color format
   private hexToColor(hex: string): any {
     // Nutrient expects color in format { r, g, b } or similar
-    const r = parseInt(hex.slice(1, 3), 16) / 255;
-    const g = parseInt(hex.slice(3, 5), 16) / 255;
-    const b = parseInt(hex.slice(5, 7), 16) / 255;
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    
+    if (this.Color) {
+      return new this.Color({ r, g, b });
+    }
+    
+    // Fallback if Color class not available (though it should be)
     return { r, g, b };
   }
 
@@ -583,18 +599,20 @@ export class NutrientAdapter implements PDFProcessorAdapter {
 
   private colorToHex(color: any): string {
     if (typeof color === "string") return color;
-    if (color.r !== undefined) {
-      const r = Math.round(color.r * 255)
-        .toString(16)
-        .padStart(2, "0");
-      const g = Math.round(color.g * 255)
-        .toString(16)
-        .padStart(2, "0");
-      const b = Math.round(color.b * 255)
-        .toString(16)
-        .padStart(2, "0");
-      return `#${r}${g}${b}`;
-    }
-    return "#FFFF00"; // Default yellow
+    // Handle both Color instance and plain object
+    const rVal = color.r !== undefined ? color.r : 0;
+    const gVal = color.g !== undefined ? color.g : 0;
+    const bVal = color.b !== undefined ? color.b : 0;
+    
+    const r = Math.round(rVal)
+      .toString(16)
+      .padStart(2, "0");
+    const g = Math.round(gVal)
+      .toString(16)
+      .padStart(2, "0");
+    const b = Math.round(bVal)
+      .toString(16)
+      .padStart(2, "0");
+    return `#${r}${g}${b}`;
   }
 }
