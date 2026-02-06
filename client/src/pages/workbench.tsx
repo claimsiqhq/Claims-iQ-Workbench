@@ -770,42 +770,137 @@ function Workbench() {
       let correctionApplied = false;
       let correctionMethod = "none";
 
-      // Strategy 1: Content editing — find the text block and replace the text
-      try {
-        const session = await instance.beginContentEditingSession();
-        const textBlocks = await session.getTextBlocks(issue.pageIndex);
-        
-        // Find the text block that contains the foundValue
-        const targetBlock = textBlocks.find((block: any) => {
-          return block.text && block.text.includes(issue.foundValue);
-        });
-
-        if (targetBlock) {
-          const updatedText = targetBlock.text.replace(
-            issue.foundValue,
-            issue.expectedValue
-          );
-          
-          await session.updateTextBlocks([
-            { id: targetBlock.id, text: updatedText },
-          ]);
-          await session.commit();
-          
-          correctionApplied = true;
-          correctionMethod = "content_edit";
-        } else {
-          // No matching text block found — cancel editing session
-          await session.cancel();
-          console.warn(`Content edit: text "${issue.foundValue}" not found in text blocks on page ${issue.pageIndex}`);
-        }
-      } catch (contentEditErr) {
-        console.warn("Content editing failed:", contentEditErr);
-      }
-
-      // Strategy 2: Redaction overlay — cover old text and stamp new text
+      // Strategy 1: Content editing — find the text block and replace the text in-place
       if (!correctionApplied) {
         try {
-          // Search for the text to get its position
+          console.log(`[Apply] Strategy 1: Content editing for "${issue.foundValue}" → "${issue.expectedValue}"`);
+          const session = await instance.beginContentEditingSession();
+          const textBlocks = await session.getTextBlocks(issue.pageIndex);
+          
+          console.log(`[Apply] Found ${textBlocks.length} text blocks on page ${issue.pageIndex}`);
+          
+          // Search all text blocks for the foundValue
+          let targetBlock = null;
+          for (const block of textBlocks) {
+            if (block.text && block.text.includes(issue.foundValue)) {
+              targetBlock = block;
+              break;
+            }
+          }
+          
+          // If exact match fails, try normalized matching (trim whitespace, collapse spaces)
+          if (!targetBlock) {
+            const normalizedSearch = issue.foundValue.replace(/\s+/g, ' ').trim();
+            for (const block of textBlocks) {
+              if (block.text) {
+                const normalizedBlock = block.text.replace(/\s+/g, ' ').trim();
+                if (normalizedBlock.includes(normalizedSearch)) {
+                  targetBlock = block;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (targetBlock) {
+            console.log(`[Apply] Found matching text block: "${targetBlock.text.substring(0, 80)}..."`);
+            const updatedText = targetBlock.text.replace(
+              issue.foundValue,
+              issue.expectedValue
+            );
+            
+            await session.updateTextBlocks([
+              { id: targetBlock.id, text: updatedText },
+            ]);
+            await session.commit();
+            
+            correctionApplied = true;
+            correctionMethod = "content_edit";
+            console.log(`[Apply] Content edit succeeded`);
+          } else {
+            console.log(`[Apply] Text not found in any text block, discarding session`);
+            // Log all text blocks for debugging
+            textBlocks.forEach((b: any, i: number) => {
+              console.log(`[Apply]   Block ${i}: "${b.text?.substring(0, 60)}..."`);
+            });
+            await session.discard();
+          }
+        } catch (contentEditErr: any) {
+          console.error(`[Apply] Strategy 1 (content edit) failed:`, contentEditErr?.message || contentEditErr);
+        }
+      }
+
+      // Strategy 2: createRedactionsBySearch — SDK built-in search + redact
+      if (!correctionApplied) {
+        try {
+          console.log(`[Apply] Strategy 2: createRedactionsBySearch for "${issue.foundValue}"`);
+          const redactionIds = await instance.createRedactionsBySearch(issue.foundValue, {
+            startPageIndex: issue.pageIndex,
+            pageRange: 1,
+            annotationPreset: {
+              overlayText: issue.expectedValue,
+            },
+          });
+          
+          // redactionIds is Immutable.List of annotation IDs
+          if (redactionIds && redactionIds.size > 0) {
+            console.log(`[Apply] Created ${redactionIds.size} redaction annotations, applying...`);
+            await instance.applyRedactions();
+            correctionApplied = true;
+            correctionMethod = "redaction";
+            console.log(`[Apply] Redactions applied successfully`);
+          } else {
+            console.log(`[Apply] createRedactionsBySearch found no matches`);
+          }
+        } catch (redactErr: any) {
+          console.error(`[Apply] Strategy 2 (redaction by search) failed:`, redactErr?.message || redactErr);
+        }
+      }
+
+      // Strategy 3: Manual redaction — search for text, create redaction at found location
+      if (!correctionApplied) {
+        try {
+          console.log(`[Apply] Strategy 3: Manual redaction via search`);
+          const searchResults = await instance.search(issue.foundValue);
+          
+          if (searchResults && searchResults.size > 0) {
+            const pageResults = searchResults.filter(
+              (r: any) => r.pageIndex === issue.pageIndex
+            );
+            const result = pageResults.size > 0 ? pageResults.get(0) : searchResults.get(0);
+            
+            if (result?.rectsOnPage?.size > 0) {
+              const Annotations = NutrientViewer?.Annotations;
+              
+              if (Annotations?.RedactionAnnotation) {
+                const annotation = new Annotations.RedactionAnnotation({
+                  pageIndex: result.pageIndex,
+                  rects: result.rectsOnPage,
+                  overlayText: issue.expectedValue,
+                });
+                
+                const created = await instance.create(annotation);
+                if (created?.id) {
+                  console.log(`[Apply] Redaction annotation created, applying...`);
+                  await instance.applyRedactions();
+                  correctionApplied = true;
+                  correctionMethod = "manual_redaction";
+                  console.log(`[Apply] Manual redaction applied successfully`);
+                }
+              } else {
+                console.log(`[Apply] RedactionAnnotation class not available`);
+              }
+            }
+          }
+        } catch (manualRedactErr: any) {
+          console.error(`[Apply] Strategy 3 (manual redaction) failed:`, manualRedactErr?.message || manualRedactErr);
+        }
+      }
+
+      // Strategy 4: Visual correction — strikethrough old text + annotation with new value
+      if (!correctionApplied) {
+        try {
+          console.log(`[Apply] Strategy 4: Visual correction (strikethrough + annotation)`);
           const searchResults = await instance.search(issue.foundValue);
           
           if (searchResults && searchResults.size > 0) {
@@ -818,64 +913,58 @@ function Workbench() {
               const Annotations = NutrientViewer?.Annotations;
               
               if (Annotations) {
-                // Create a redaction annotation over the found text
-                try {
-                  const annotation = new Annotations.RedactionAnnotation({
-                    pageIndex: result.pageIndex,
-                    rects: result.rectsOnPage,
-                    overlayText: issue.expectedValue,
-                  });
-                  
-                  const created = await instance.create(annotation);
-                  if (created?.id) {
-                    // Apply the redaction to actually modify the document
-                    try {
-                      await instance.applyRedactions();
-                      correctionApplied = true;
-                      correctionMethod = "redaction_overlay";
-                    } catch (applyErr) {
-                      console.warn("Redaction apply failed, keeping as annotation:", applyErr);
-                      correctionApplied = true;
-                      correctionMethod = "redaction_annotation";
+                // Step 1: Strikethrough the old text
+                if (Annotations.StrikeOutAnnotation) {
+                  try {
+                    const strikeout = new Annotations.StrikeOutAnnotation({
+                      pageIndex: result.pageIndex,
+                      rects: result.rectsOnPage,
+                    });
+                    await instance.create(strikeout);
+                  } catch (e) {
+                    console.warn("[Apply] StrikeOutAnnotation failed:", e);
+                  }
+                }
+                
+                // Step 2: Add a text annotation with the corrected value
+                const firstRect = result.rectsOnPage.get(0);
+                if (Annotations.TextAnnotation && firstRect) {
+                  try {
+                    const textAnnotation = new Annotations.TextAnnotation({
+                      pageIndex: result.pageIndex,
+                      boundingBox: firstRect,
+                      text: { 
+                        format: "plain" as const,
+                        value: `CORRECTED: ${issue.expectedValue}\n\nOriginal: ${issue.foundValue}\n${issue.label || ""}`,
+                      },
+                      isBold: false,
+                    });
+                    await instance.create(textAnnotation);
+                  } catch (e) {
+                    console.warn("[Apply] TextAnnotation failed, trying NoteAnnotation:", e);
+                    // Fallback to NoteAnnotation
+                    if (Annotations.NoteAnnotation) {
+                      const noteAnnotation = new Annotations.NoteAnnotation({
+                        pageIndex: result.pageIndex,
+                        boundingBox: firstRect,
+                        text: { 
+                          format: "plain" as const,
+                          value: `CORRECTED: ${issue.expectedValue}\n\nOriginal: ${issue.foundValue}\n${issue.label || ""}`,
+                        },
+                      });
+                      await instance.create(noteAnnotation);
                     }
                   }
-                } catch (redactErr) {
-                  console.warn("Redaction annotation failed:", redactErr);
                 }
-              }
-            }
-          }
-        } catch (searchErr) {
-          console.warn("Search for redaction overlay failed:", searchErr);
-        }
-      }
-
-      // Strategy 3: Text annotation as a visual marker for the correction
-      if (!correctionApplied) {
-        try {
-          const searchResults = await instance.search(issue.foundValue);
-          
-          if (searchResults && searchResults.size > 0) {
-            const result = searchResults.get(0);
-            
-            if (result?.rectsOnPage?.size > 0) {
-              const Annotations = NutrientViewer?.Annotations;
-              
-              if (Annotations?.NoteAnnotation) {
-                const annotation = new Annotations.NoteAnnotation({
-                  pageIndex: result.pageIndex,
-                  boundingBox: result.rectsOnPage.get(0),
-                  text: { value: `CORRECTION: "${issue.foundValue}" → "${issue.expectedValue}"\n\n${issue.label || ""}` },
-                });
                 
-                await instance.create(annotation);
                 correctionApplied = true;
-                correctionMethod = "note_annotation";
+                correctionMethod = "visual_strikethrough";
+                console.log(`[Apply] Visual correction applied (strikethrough + annotation)`);
               }
             }
           }
-        } catch (noteErr) {
-          console.warn("Note annotation fallback failed:", noteErr);
+        } catch (visualErr: any) {
+          console.error(`[Apply] Strategy 4 (visual correction) failed:`, visualErr?.message || visualErr);
         }
       }
 
@@ -904,14 +993,15 @@ function Workbench() {
           description: `"${issue.foundValue}" → "${issue.expectedValue}" (via ${correctionMethod.replace(/_/g, " ")})`,
         });
       } else {
+        console.error(`[Apply] ALL strategies failed for issue ${issue.issueId}. Check console for details.`);
         toast({
           title: "Correction Could Not Be Applied",
-          description: `The text "${issue.foundValue}" could not be automatically corrected. Try manual edit instead.`,
+          description: "Check browser console for detailed error logs. All correction strategies failed.",
           variant: "destructive",
         });
       }
     } catch (err) {
-      console.error("Failed to apply correction:", err);
+      console.error("[Apply] Top-level error:", err);
       toast({
         title: "Error",
         description: err instanceof Error ? err.message : "Failed to apply correction",
