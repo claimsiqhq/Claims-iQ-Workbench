@@ -360,32 +360,34 @@ function Workbench() {
               
               const geometryRect = new Geometry.Rect(rect);
               
-              // Try to convert color to Color instance
-              let color: any = colorObj;
-              try {
-                const Color = await instance.Color;
-                if (Color && typeof Color === 'function') {
-                  try {
-                    color = new Color(colorObj.r, colorObj.g, colorObj.b);
-                  } catch (e) {
-                    color = colorObj;
-                  }
-                }
-              } catch (err) {
-                color = colorObj;
-              }
+              // Use plain object format like the adapter does (not Color instance)
+              const color = colorObj; // { r, g, b } format with normalized values
               
-              // Use HighlightAnnotation for visible highlights
+              console.log(`Creating highlight annotation for issue ${issue.issueId}:`, {
+                pageIndex: issue.pageIndex,
+                rect: rect,
+                geometryRect: geometryRect,
+                color: color,
+                colorType: typeof color
+              });
+              
+              // Use HighlightAnnotation exactly like the adapter does
               const annotation = new Annotations.HighlightAnnotation({
                 pageIndex: issue.pageIndex,
                 rects: [geometryRect],
-                color: color,
-                opacity: 0.4, // Make it visible
+                color: color, // Plain { r, g, b } object
               });
               
+              console.log(`Created annotation object:`, annotation);
+              
               const created = await instance.create(annotation);
+              console.log(`Annotation creation result:`, created);
+              
               if (created && created.id) {
+                console.log(`✅ Successfully created annotation ${created.id} for issue ${issue.issueId}`);
                 setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, created.id));
+              } else {
+                console.error(`❌ Failed to create annotation - no ID returned:`, created);
               }
             } catch (err) {
               console.error(`Failed to create annotation for issue ${issue.issueId}:`, err);
@@ -415,33 +417,8 @@ function Workbench() {
     const normalizedSeverity = severity?.toLowerCase() || '';
     const color = colorMap[normalizedSeverity] || { r: 107/255, g: 114/255, b: 128/255 }; // Gray default
     
-    // Try to convert to Nutrient Color object if instance is available
-    if (instance) {
-      try {
-        const Color = await instance.Color;
-        if (Color) {
-          // Try creating Color object with normalized values
-          try {
-            return new Color(color.r, color.g, color.b);
-          } catch (e1) {
-            // If that fails, try with 0-255 range
-            try {
-              return new Color(color.r * 255, color.g * 255, color.b * 255);
-            } catch (e2) {
-              // If both fail, return plain object (Nutrient should accept this)
-              console.warn("Color constructor failed, using plain object format", e2);
-              return color;
-            }
-          }
-        }
-      } catch (err) {
-        // If Color is not available, return plain object format
-        console.warn("instance.Color not available, using plain object format", err);
-        return color;
-      }
-    }
-    
-    // Return plain object format (Nutrient should accept this based on adapter code)
+    // Always return plain object format { r, g, b } with normalized values (0-1)
+    // This matches what the adapter does - no Color instance needed
     return color;
   };
 
@@ -589,33 +566,35 @@ function Workbench() {
             
             const geometryRect = new Geometry.Rect(rect);
             
-            // Try to convert color to Color instance
-            let color: any = colorObj;
-            try {
-              const Color = await instance.Color;
-              if (Color && typeof Color === 'function') {
-                try {
-                  color = new Color(colorObj.r, colorObj.g, colorObj.b);
-                } catch (e) {
-                  color = colorObj;
-                }
-              }
-            } catch (err) {
-              color = colorObj;
-            }
+            // Use plain object format like the adapter does (not Color instance)
+            const color = colorObj; // { r, g, b } format with normalized values
             
-            // Create highlight annotation
+            // Create highlight annotation exactly like the adapter does
+            console.log(`Creating highlight annotation on click for issue ${issue.issueId}:`, {
+              pageIndex: issue.pageIndex,
+              rect: rect,
+              geometryRect: geometryRect,
+              color: color
+            });
+            
             const annotation = new Annotations.HighlightAnnotation({
               pageIndex: issue.pageIndex,
               rects: [geometryRect],
-              color: color,
-              opacity: 0.5, // Make it more visible
+              color: color, // Plain { r, g, b } object
             });
             
+            console.log(`Annotation object created:`, annotation);
+            
             const created = await instance.create(annotation);
+            console.log(`Annotation creation result:`, created);
+            
             if (created && created.id) {
               annotationId = created.id;
+              console.log(`✅ Successfully created annotation ${annotationId} for issue ${issue.issueId}`);
               setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, annotationId!));
+            } else {
+              console.error(`❌ Failed to create annotation - no ID returned:`, created);
+              throw new Error(`Annotation creation failed - no ID returned`);
             }
           }
         } catch (createErr) {
