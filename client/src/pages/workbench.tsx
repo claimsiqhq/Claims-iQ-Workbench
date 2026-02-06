@@ -415,16 +415,12 @@ function Workbench() {
             color = colorObj;
           }
 
-          const annotation = new Annotations.RectangleAnnotation({
+          // Use HighlightAnnotation - Nutrient SDK doesn't have RectangleAnnotation
+          const rect = new Geometry.Rect(validRect);
+          const annotation = new Annotations.HighlightAnnotation({
             pageIndex: issue.pageIndex,
-            boundingBox: new Geometry.Rect(validRect),
-            strokeColor: color,
-            strokeWidth: 4,
-            isEditable: false,
-            opacity: 0.7,
-            fillColor: color,
-            fillOpacity: 0.25,
-            customData: { issueId: issue.issueId },
+            rects: [rect],
+            color: color,
           });
 
           const createdAnnotation = await instance.create(annotation);
@@ -683,32 +679,64 @@ function Workbench() {
             throw new Error(`Invalid rect structure: ${JSON.stringify(rect)}`);
           }
 
-          const annotation = new Annotations.RectangleAnnotation({
+          // Validate all inputs before creating annotation
+          console.log("Creating annotation with:", {
             pageIndex: issue.pageIndex,
-            boundingBox: new Geometry.Rect(rect),
-            strokeColor: color,
-            strokeWidth: 4,
-            isEditable: false,
-            opacity: 0.7,
-            fillColor: color,
-            fillOpacity: 0.25,
-            customData: { issueId: issue.issueId },
+            rect: rect,
+            color: color,
+            colorType: typeof color,
+            hasAnnotations: !!Annotations,
+            hasGeometry: !!Geometry,
+            hasRectangleAnnotation: !!Annotations.RectangleAnnotation
           });
 
+          // Create Geometry.Rect
+          let boundingBox;
+          try {
+            boundingBox = new Geometry.Rect(rect);
+            console.log("Created boundingBox:", boundingBox);
+          } catch (rectError) {
+            console.error("Failed to create Geometry.Rect:", rectError);
+            throw new Error(`Invalid rect for Geometry.Rect: ${rectError instanceof Error ? rectError.message : 'Unknown error'}`);
+          }
+
+          // Use HighlightAnnotation (like the adapter does) - RectangleAnnotation may not exist
+          const annotation = new Annotations.HighlightAnnotation({
+            pageIndex: issue.pageIndex,
+            rects: [boundingBox],
+            color: color,
+          });
+
+          console.log("Created annotation object:", annotation);
+
           const createdAnnotation = await instance.create(annotation);
-          annotationId = createdAnnotation.id;
+          console.log("Created annotation result:", createdAnnotation);
+          
+          annotationId = createdAnnotation?.id || createdAnnotation?.annotationId || null;
+          
+          if (!annotationId) {
+            console.error("Annotation creation returned invalid result:", createdAnnotation);
+            throw new Error(`Annotation creation returned invalid result: ${JSON.stringify(createdAnnotation)}`);
+          }
+          
           console.log(`Created annotation ${annotationId} for issue ${issue.issueId}`, {
             rect: issue.rect,
-            pageIndex: issue.pageIndex
+            pageIndex: issue.pageIndex,
+            annotationId: annotationId
           });
           
-          if (createdAnnotation && createdAnnotation.id) {
-            setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, annotationId!));
-          } else {
-            throw new Error("Annotation creation returned invalid result");
-          }
+          setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, annotationId!));
         } catch (annotationError) {
           console.error("Failed to create annotation:", annotationError);
+          console.error("Error details:", {
+            error: annotationError,
+            errorType: typeof annotationError,
+            errorMessage: annotationError instanceof Error ? annotationError.message : String(annotationError),
+            errorStack: annotationError instanceof Error ? annotationError.stack : undefined,
+            issueId: issue.issueId,
+            pageIndex: issue.pageIndex,
+            rect: issue.rect
+          });
           toast({
             title: "Annotation Error",
             description: `Failed to create annotation: ${annotationError instanceof Error ? annotationError.message : 'Unknown error'}`,
@@ -817,33 +845,66 @@ function Workbench() {
                 throw new Error(`Invalid rect structure: ${JSON.stringify(rect)}`);
               }
               
-              const annotation = new Annotations.RectangleAnnotation({
+              // Validate all inputs before creating annotation
+              console.log("Creating annotation on click with:", {
                 pageIndex: issue.pageIndex,
-                boundingBox: new Geometry.Rect(rect),
-                strokeColor: color,
-                strokeWidth: 4,
-                isEditable: false,
-                opacity: 0.7,
-                fillColor: color,
-                fillOpacity: 0.25,
-                customData: { issueId: issue.issueId },
+                rect: rect,
+                color: color,
+                colorType: typeof color,
+                hasAnnotations: !!Annotations,
+                hasGeometry: !!Geometry
               });
 
-              const createdAnnotation = await instance.create(annotation);
-              if (createdAnnotation && createdAnnotation.id) {
-                setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, createdAnnotation.id));
-                await instance.setSelectedAnnotation(createdAnnotation.id);
-                toast({
-                  title: "Issue Highlighted",
-                  description: `Showing issue on page ${issue.pageIndex + 1}`,
-                });
+              // Create Geometry.Rect
+              let boundingBox;
+              try {
+                boundingBox = new Geometry.Rect(rect);
+                console.log("Created boundingBox:", boundingBox);
+              } catch (rectError) {
+                console.error("Failed to create Geometry.Rect:", rectError);
+                throw new Error(`Invalid rect for Geometry.Rect: ${rectError instanceof Error ? rectError.message : 'Unknown error'}`);
               }
+
+              // Use HighlightAnnotation (Nutrient doesn't have RectangleAnnotation)
+              const annotation = new Annotations.HighlightAnnotation({
+                pageIndex: issue.pageIndex,
+                rects: [boundingBox],
+                color: color,
+              });
+
+              console.log("Created annotation object:", annotation);
+
+              const createdAnnotation = await instance.create(annotation);
+              console.log("Created annotation result:", createdAnnotation);
+              
+              const annotationId = createdAnnotation?.id || createdAnnotation?.annotationId || null;
+              
+              if (!annotationId) {
+                console.error("Annotation creation returned invalid result:", createdAnnotation);
+                throw new Error(`Annotation creation returned invalid result: ${JSON.stringify(createdAnnotation)}`);
+              }
+              
+              setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, annotationId));
+              await instance.setSelectedAnnotation(annotationId);
+              toast({
+                title: "Issue Highlighted",
+                description: `Showing issue on page ${issue.pageIndex + 1}`,
+              });
             }
           } catch (createErr) {
             console.error("Failed to create annotation on click:", createErr);
+            console.error("Error details:", {
+              error: createErr,
+              errorType: typeof createErr,
+              errorMessage: createErr instanceof Error ? createErr.message : String(createErr),
+              errorStack: createErr instanceof Error ? createErr.stack : undefined,
+              issueId: issue.issueId,
+              pageIndex: issue.pageIndex,
+              rect: issue.rect
+            });
             toast({
               title: "Could Not Highlight",
-              description: `Issue on page ${issue.pageIndex + 1} - annotation creation failed`,
+              description: `Issue on page ${issue.pageIndex + 1} - ${createErr instanceof Error ? createErr.message : 'annotation creation failed'}`,
               variant: "destructive",
             });
           }
