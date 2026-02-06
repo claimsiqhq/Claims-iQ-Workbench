@@ -326,29 +326,28 @@ function Workbench() {
 
   // Draw issue annotations when document and issues are loaded
   useEffect(() => {
-    if (instance && issueBundle?.issues && isDocumentLoaded && issueBundle.issues.length > 0) {
+    if (instance && issueBundle?.issues && isDocumentLoaded && issueBundle.issues.length > 0 && pdfAdapter) {
       const drawAnnotations = async () => {
         try {
           await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for viewer to be ready
           
-          // Check if instance is still available
-          if (!instance) {
-            console.warn("Instance no longer available");
+          // Check if instance and adapter are still available
+          if (!instance || !pdfAdapter) {
+            console.warn("Instance or adapter no longer available");
             return;
           }
           
-          const Annotations = await instance.Annotations;
-          const Geometry = await instance.Geometry;
+          // Use the adapter's Annotations and Geometry (they're already loaded)
+          const adapter = pdfAdapter as any;
+          if (!adapter.Annotations || !adapter.Geometry) {
+            console.error("❌ Adapter modules not loaded. Waiting for adapter initialization...");
+            return;
+          }
           
-          // Validate that Annotations and Geometry are available
-          if (!Annotations) {
-            console.error("Annotations module not available from instance");
-            return;
-          }
-          if (!Geometry) {
-            console.error("Geometry module not available from instance");
-            return;
-          }
+          const Annotations = adapter.Annotations;
+          const Geometry = adapter.Geometry;
+          
+          console.log("✅ Using adapter's Annotations and Geometry modules");
           
           // Safely log available annotation types
           try {
@@ -422,7 +421,7 @@ function Workbench() {
       
       drawAnnotations();
     }
-  }, [instance, issueBundle, isDocumentLoaded]);
+  }, [instance, issueBundle, isDocumentLoaded, pdfAdapter]);
 
   const getIssueColor = async (severity: string): Promise<{ r: number; g: number; b: number } | null> => {
     // Determine RGB values based on severity (0-255 range, then normalize to 0-1)
@@ -568,19 +567,63 @@ function Workbench() {
         try {
           console.log(`🔵 Attempting to create annotation for issue ${issue.issueId}...`);
           
-          // Validate instance is still available
+          // Validate instance and adapter are available
           if (!instance) {
             throw new Error("Instance no longer available");
           }
           
-          const Annotations = await instance.Annotations;
-          const Geometry = await instance.Geometry;
+          // Use adapter's Annotations and Geometry if available (they're already loaded)
+          let Annotations: any = null;
+          let Geometry: any = null;
           
-          // Validate modules are available
+          if (pdfAdapter) {
+            const adapter = pdfAdapter as any;
+            Annotations = adapter.Annotations;
+            Geometry = adapter.Geometry;
+            console.log("🔵 Using adapter's Annotations and Geometry");
+          }
+          
+          // Fallback: try to load from instance directly
+          if (!Annotations || !Geometry) {
+            console.log("🔵 Adapter not ready, loading from instance directly...");
+            let retries = 0;
+            const maxRetries = 15; // 3 seconds total
+            
+            while (retries < maxRetries && (!Annotations || !Geometry)) {
+              try {
+                if (!Annotations) {
+                  Annotations = await instance.Annotations;
+                }
+                if (!Geometry) {
+                  Geometry = await instance.Geometry;
+                }
+                
+                if (Annotations && Geometry) {
+                  console.log(`✅ Annotations and Geometry modules loaded after ${retries + 1} attempts`);
+                  break;
+                }
+              } catch (err) {
+                // Not ready yet
+              }
+              
+              if (!Annotations || !Geometry) {
+                await new Promise(resolve => setTimeout(resolve, 200));
+                retries++;
+              }
+            }
+          }
+          
+          // Validate that Annotations and Geometry are available
           if (!Annotations) {
-            throw new Error("Annotations module not available");
+            console.error("❌ Annotations module not available. Instance structure:", {
+              keys: instance ? Object.keys(instance).slice(0, 30) : [],
+              hasAdapter: !!pdfAdapter,
+              adapterAnnotations: pdfAdapter ? (pdfAdapter as any).Annotations : null
+            });
+            throw new Error("Annotations module not available. Check console for details.");
           }
           if (!Geometry) {
+            console.error("❌ Geometry module not available");
             throw new Error("Geometry module not available");
           }
           
@@ -1655,7 +1698,12 @@ function Workbench() {
             </div>
           ) : (
             <div className="h-full flex">
-              <div ref={containerRef} className="flex-1 h-full relative" data-testid="viewer-container" />
+              <div 
+                ref={containerRef} 
+                className="flex-1 h-full relative w-full" 
+                style={{ position: 'relative' }}
+                data-testid="viewer-container" 
+              />
               
               {showAnnotationPanel && isDocumentLoaded && selectedDocumentId && (
                 <>
