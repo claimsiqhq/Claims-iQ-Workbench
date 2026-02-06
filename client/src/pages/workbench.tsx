@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef as useReactRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useRef as useReactRef, useCallback } from "react";
 
 // Force full page reload on HMR to prevent hook state corruption
 if (import.meta.hot) {
