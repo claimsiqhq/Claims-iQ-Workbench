@@ -48,6 +48,7 @@ export function useWorkbenchState() {
   const [fixEngine, setFixEngine] = useState<FixEngine | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [crossDocValidations, setCrossDocValidations] = useState<CrossDocumentValidation[]>([]);
+  const [showIssuesPanel, setShowIssuesPanel] = useState(true);
   const [showAnnotationPanel, setShowAnnotationPanel] = useState(false);
   const [showValidationPanel, setShowValidationPanel] = useState(false);
   const [currentPage, setCurrentPage] = useState<number>(0);
@@ -129,6 +130,8 @@ export function useWorkbenchState() {
     setAnnotations,
     crossDocValidations,
     setCrossDocValidations,
+    showIssuesPanel,
+    setShowIssuesPanel,
     showAnnotationPanel,
     setShowAnnotationPanel,
     showValidationPanel,

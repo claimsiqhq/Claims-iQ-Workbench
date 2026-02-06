@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useRef as useReactRef, useCallback } from "react";
 
 // Force full page reload on HMR to prevent hook state corruption
 if (import.meta.hot) {
@@ -61,9 +61,13 @@ import {
   Calendar,
   Phone,
   MapPin,
-  Hash
+  Hash,
+  PanelLeftClose,
+  PanelLeft
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import type { ImperativePanelHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 
 function Workbench() {
@@ -119,6 +123,8 @@ function Workbench() {
     setAnnotations,
     crossDocValidations,
     setCrossDocValidations,
+    showIssuesPanel,
+    setShowIssuesPanel,
     showAnnotationPanel,
     setShowAnnotationPanel,
     showValidationPanel,
@@ -136,6 +142,21 @@ function Workbench() {
     itemsPerPage,
     setItemsPerPage,
   } = state;
+
+  const issuesPanelRef = useReactRef<ImperativePanelHandle>(null);
+
+  const toggleIssuesPanel = useCallback(() => {
+    const panel = issuesPanelRef.current;
+    if (panel) {
+      if (panel.isCollapsed()) {
+        panel.expand();
+        setShowIssuesPanel(true);
+      } else {
+        panel.collapse();
+        setShowIssuesPanel(false);
+      }
+    }
+  }, [setShowIssuesPanel]);
 
   const { data: health } = useQuery({
     queryKey: ["health"],
@@ -932,6 +953,17 @@ function Workbench() {
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant={showIssuesPanel ? "secondary" : "ghost"}
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={toggleIssuesPanel}
+              data-testid="button-toggle-issues"
+              title={showIssuesPanel ? "Hide Issues Panel" : "Show Issues Panel"}
+            >
+              {showIssuesPanel ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+            </Button>
+
             {isDocumentLoaded && selectedDocumentId && (
               <Button
                 variant="ghost"
@@ -1154,8 +1186,18 @@ function Workbench() {
         </div>
       </header>
 
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        <aside className="w-full lg:w-[340px] xl:w-[380px] shrink-0 border-b lg:border-b-0 lg:border-r bg-card flex flex-col max-h-[35vh] lg:max-h-none overflow-hidden">
+      <ResizablePanelGroup direction="horizontal" className="flex-1">
+        <ResizablePanel
+          ref={issuesPanelRef}
+          defaultSize={25}
+          minSize={15}
+          maxSize={45}
+          collapsible
+          collapsedSize={0}
+          onCollapse={() => setShowIssuesPanel(false)}
+          onExpand={() => setShowIssuesPanel(true)}
+          className="bg-card flex flex-col overflow-hidden"
+        >
           <div className="px-3 py-2.5 border-b bg-muted/30">
             <div className="flex items-center justify-between mb-2">
               <h2 className="font-display font-semibold text-foreground text-sm">Issues</h2>
@@ -1272,9 +1314,9 @@ function Workbench() {
               )}
             </div>
           </ScrollArea>
-        </aside>
-
-        <main className="flex-1 min-w-0 bg-muted/20 relative overflow-hidden">
+        </ResizablePanel>
+        <ResizableHandle withHandle />
+        <ResizablePanel defaultSize={75} className="bg-muted/20 relative overflow-hidden">
           {viewerLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/90 backdrop-blur-sm z-10">
               <div className="flex flex-col items-center gap-4">
@@ -1325,30 +1367,30 @@ function Workbench() {
               )}
             </div>
           )}
-        </main>
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
-        {showValidationPanel && selectedClaimId && (
-          <>
-            <div className="fixed inset-0 bg-black/20 z-10 lg:hidden" onClick={() => setShowValidationPanel(false)} />
-            <div className="w-[320px] lg:w-[360px] fixed lg:relative inset-y-0 right-0 border-l bg-card flex flex-col shadow-lg z-20">
-              <div className="h-10 px-3 border-b flex items-center justify-between shrink-0">
-                <h3 className="font-semibold text-sm">Cross-Doc Validation</h3>
-                <div className="flex items-center gap-1">
-                  <Button variant="outline" size="sm" className="h-6 text-[10px] px-2" onClick={handleTriggerValidation}>
-                    <Search className="h-3 w-3 mr-1" /> Validate
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setShowValidationPanel(false)}>
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-              <div className="flex-1 overflow-hidden">
-                <CrossDocumentValidationPanel claimId={selectedClaimId} validations={crossDocValidations} onResolve={handleResolveValidation} onIgnore={handleIgnoreValidation} onEscalate={handleEscalateValidation} />
+      {showValidationPanel && selectedClaimId && (
+        <>
+          <div className="fixed inset-0 bg-black/20 z-10 lg:hidden" onClick={() => setShowValidationPanel(false)} />
+          <div className="w-[320px] lg:w-[360px] fixed inset-y-0 right-0 border-l bg-card flex flex-col shadow-lg z-20">
+            <div className="h-10 px-3 border-b flex items-center justify-between shrink-0">
+              <h3 className="font-semibold text-sm">Cross-Doc Validation</h3>
+              <div className="flex items-center gap-1">
+                <Button variant="outline" size="sm" className="h-6 text-[10px] px-2" onClick={handleTriggerValidation}>
+                  <Search className="h-3 w-3 mr-1" /> Validate
+                </Button>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setShowValidationPanel(false)}>
+                  <X className="h-3.5 w-3.5" />
+                </Button>
               </div>
             </div>
-          </>
-        )}
-      </div>
+            <div className="flex-1 overflow-hidden">
+              <CrossDocumentValidationPanel claimId={selectedClaimId} validations={crossDocValidations} onResolve={handleResolveValidation} onIgnore={handleIgnoreValidation} onEscalate={handleEscalateValidation} />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
