@@ -59,6 +59,7 @@ export async function getSchemaInfo(): Promise<{
   title: string;
   schema: any;
   hasCustomSchema: boolean;
+  storedInDatabase: boolean;
 }> {
   return getSchemaInfoFromStore();
 }

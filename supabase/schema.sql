@@ -311,6 +311,29 @@ CREATE POLICY "Users can update their own validations" ON cross_document_validat
 CREATE POLICY "Users can delete their own validations" ON cross_document_validations
   FOR DELETE USING (auth.uid() = user_id);
 
+-- Correction Schemas table - Stores uploaded validation schemas in the database
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+CREATE TABLE IF NOT EXISTS correction_schemas (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL DEFAULT 'custom',
+  title TEXT,
+  version TEXT,
+  schema_content JSONB NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  user_id UUID,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_correction_schemas_active ON correction_schemas(is_active);
+CREATE INDEX IF NOT EXISTS idx_correction_schemas_user_id ON correction_schemas(user_id);
+
+ALTER TABLE correction_schemas ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access on correction_schemas" ON correction_schemas
+  FOR ALL USING (true) WITH CHECK (true);
+
 -- Updated_at triggers for canonical schema tables
 CREATE TRIGGER update_corrections_updated_at
   BEFORE UPDATE ON corrections

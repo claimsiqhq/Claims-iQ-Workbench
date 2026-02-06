@@ -7,6 +7,8 @@ const DEFAULT_SCHEMA_FILE = path.join(SCHEMA_DIR, "claimsiq_correction_schema.js
 const LEGACY_CUSTOM_FILE = path.join(SCHEMA_DIR, "active_schema.json");
 
 let pool: Pool | null = null;
+let dbAvailable = false;
+let dbCheckDone = false;
 
 function getPool(): Pool | null {
   if (pool) return pool;
@@ -36,6 +38,7 @@ async function ensureTable(): Promise<boolean> {
   const db = getPool();
   if (!db) return false;
   try {
+    await db.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`);
     await db.query(`
       CREATE TABLE IF NOT EXISTS correction_schemas (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -50,17 +53,29 @@ async function ensureTable(): Promise<boolean> {
       )
     `);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    console.warn("[schema-store] Could not auto-create table:", err instanceof Error ? err.message : err);
+    try {
+      const check = await db.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_name = 'correction_schemas' AND table_schema = 'public'`
+      );
+      return check.rows.length > 0;
+    } catch {
+      return false;
+    }
   }
 }
 
-let tableReady = false;
-
 async function ready(): Promise<boolean> {
-  if (tableReady) return true;
-  tableReady = await ensureTable();
-  return tableReady;
+  if (dbCheckDone) return dbAvailable;
+  dbAvailable = await ensureTable();
+  dbCheckDone = true;
+  if (dbAvailable) {
+    console.log("[schema-store] Database table ready for schema storage");
+  } else {
+    console.warn("[schema-store] Database not available, using filesystem fallback for schemas");
+  }
+  return dbAvailable;
 }
 
 export async function getActiveSchemaFromDB(): Promise<StoredSchema | null> {
@@ -85,7 +100,8 @@ export async function getActiveSchemaFromDB(): Promise<StoredSchema | null> {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
-  } catch {
+  } catch (err) {
+    console.error("[schema-store] Error reading schema from DB:", err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -102,7 +118,7 @@ export async function saveSchemaToDBFn(
   }
 
   if (!(await ready())) {
-    return { success: false, error: "Database not available" };
+    return { success: false, error: "Database not available for schema storage" };
   }
 
   const db = getPool();
@@ -122,9 +138,12 @@ export async function saveSchemaToDBFn(
       ["custom", title, version, JSON.stringify(schemaContent), isRealUser ? userId : null]
     );
 
+    console.log(`[schema-store] Schema saved to DB: "${title}" v${version} (id: ${result.rows[0]?.id})`);
     return { success: true, id: result.rows[0]?.id };
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Failed to save schema" };
+    const msg = err instanceof Error ? err.message : "Failed to save schema";
+    console.error("[schema-store] Error saving schema to DB:", msg);
+    return { success: false, error: msg };
   }
 }
 
@@ -137,10 +156,13 @@ export async function deleteActiveSchemaFromDB(): Promise<{ success: boolean; er
   if (!db) return { success: false, error: "Database not available" };
 
   try {
-    await db.query(`DELETE FROM correction_schemas WHERE is_active = true`);
+    const result = await db.query(`DELETE FROM correction_schemas WHERE is_active = true`);
+    console.log(`[schema-store] Deleted ${result.rowCount} active schema(s) from DB`);
     return { success: true };
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Failed to delete schema" };
+    const msg = err instanceof Error ? err.message : "Failed to delete schema";
+    console.error("[schema-store] Error deleting schema from DB:", msg);
+    return { success: false, error: msg };
   }
 }
 
@@ -160,8 +182,11 @@ export async function getActiveSchema(): Promise<any | null> {
   if (fs.existsSync(LEGACY_CUSTOM_FILE)) {
     try {
       const content = JSON.parse(fs.readFileSync(LEGACY_CUSTOM_FILE, "utf-8"));
-      await saveSchemaToDBFn(content);
-      try { fs.unlinkSync(LEGACY_CUSTOM_FILE); } catch {}
+      const dbResult = await saveSchemaToDBFn(content);
+      if (dbResult.success) {
+        try { fs.unlinkSync(LEGACY_CUSTOM_FILE); } catch {}
+        console.log("[schema-store] Migrated legacy active_schema.json to database");
+      }
       return content;
     } catch {}
   }
@@ -174,6 +199,7 @@ export async function getSchemaInfo(): Promise<{
   title: string;
   schema: any;
   hasCustomSchema: boolean;
+  storedInDatabase: boolean;
 }> {
   const dbSchema = await getActiveSchemaFromDB();
 
@@ -183,19 +209,31 @@ export async function getSchemaInfo(): Promise<{
       title: dbSchema.title || "Custom Schema",
       schema: dbSchema.schemaContent,
       hasCustomSchema: true,
+      storedInDatabase: true,
     };
   }
 
   if (fs.existsSync(LEGACY_CUSTOM_FILE)) {
     try {
       const content = JSON.parse(fs.readFileSync(LEGACY_CUSTOM_FILE, "utf-8"));
-      await saveSchemaToDBFn(content);
-      try { fs.unlinkSync(LEGACY_CUSTOM_FILE); } catch {}
+      const dbResult = await saveSchemaToDBFn(content);
+      if (dbResult.success) {
+        try { fs.unlinkSync(LEGACY_CUSTOM_FILE); } catch {}
+        console.log("[schema-store] Migrated legacy active_schema.json to database");
+        return {
+          version: content.version || "unknown",
+          title: content.title || "Custom Schema",
+          schema: content,
+          hasCustomSchema: true,
+          storedInDatabase: true,
+        };
+      }
       return {
         version: content.version || "unknown",
         title: content.title || "Custom Schema",
         schema: content,
         hasCustomSchema: true,
+        storedInDatabase: false,
       };
     } catch {}
   }
@@ -206,6 +244,7 @@ export async function getSchemaInfo(): Promise<{
     title: defaultSchema?.title || "Unknown Schema",
     schema: defaultSchema,
     hasCustomSchema: false,
+    storedInDatabase: false,
   };
 }
 
@@ -214,6 +253,7 @@ export async function saveActiveSchema(
   userId?: string
 ): Promise<{ success: boolean; error?: string }> {
   const dbResult = await saveSchemaToDBFn(schemaContent, userId);
+
   if (dbResult.success) {
     if (fs.existsSync(LEGACY_CUSTOM_FILE)) {
       try { fs.unlinkSync(LEGACY_CUSTOM_FILE); } catch {}
@@ -221,6 +261,7 @@ export async function saveActiveSchema(
     return { success: true };
   }
 
+  console.warn("[schema-store] DB save failed, falling back to filesystem:", dbResult.error);
   try {
     if (!schemaContent || typeof schemaContent !== "object") {
       return { success: false, error: "Schema must be a valid JSON object" };

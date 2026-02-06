@@ -69,6 +69,17 @@ Preferred communication style: Simple, everyday language.
 - **documents** - Document metadata linked to claims
 - **issues** - Detected issues with severity, location, and status
 - **audit_logs** - Compliance audit trail for all corrections
+- **correction_schemas** - Uploaded JSON validation schemas (persisted in DB)
+- **corrections** - Canonical corrections per document
+- **annotations** - Visual annotations on documents
+- **cross_document_validations** - Cross-document consistency checks
+
+### Schema Storage
+- Correction validation schemas are stored in the `correction_schemas` table in the database
+- Uses direct PostgreSQL connection (pg Pool) via `server/schema-store.ts`
+- Falls back to filesystem (`server/schemas/`) when DB is not available
+- Legacy filesystem schemas (`active_schema.json`) are auto-migrated to DB on first access
+- Default schema is `server/schemas/claimsiq_correction_schema.json`
 
 ### Storage
 - **documents** bucket - Stores uploaded PDF files
