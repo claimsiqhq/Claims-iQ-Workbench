@@ -538,87 +538,114 @@ function Workbench() {
 
       await new Promise(resolve => setTimeout(resolve, 500)); // Wait for page to render
 
-      // Ensure annotation exists and is visible
+      // Always try to create annotation if rect exists
       let annotationId = issueAnnotations.get(issue.issueId);
       
       if (!annotationId && issue.rect) {
         // Create annotation if it doesn't exist
         try {
+          console.log(`🔵 Attempting to create annotation for issue ${issue.issueId}...`);
           const Annotations = await instance.Annotations;
           const Geometry = await instance.Geometry;
           const colorObj = await getIssueColor(issue.severity);
           
-          if (colorObj) {
-            // Parse rect if needed
-            let rect = issue.rect;
-            if (typeof rect === 'string') {
-              try {
-                rect = JSON.parse(rect);
-              } catch (e) {
-                throw new Error(`Invalid rect JSON`);
-              }
-            }
-            
-            if (typeof rect.left !== 'number' || typeof rect.top !== 'number' || 
-                typeof rect.width !== 'number' || typeof rect.height !== 'number') {
-              throw new Error(`Invalid rect structure`);
-            }
-            
-            const geometryRect = new Geometry.Rect(rect);
-            
-            // Use plain object format like the adapter does (not Color instance)
-            const color = colorObj; // { r, g, b } format with normalized values
-            
-            // Create highlight annotation exactly like the adapter does
-            console.log(`Creating highlight annotation on click for issue ${issue.issueId}:`, {
-              pageIndex: issue.pageIndex,
-              rect: rect,
-              geometryRect: geometryRect,
-              color: color
-            });
-            
-            const annotation = new Annotations.HighlightAnnotation({
-              pageIndex: issue.pageIndex,
-              rects: [geometryRect],
-              color: color, // Plain { r, g, b } object
-            });
-            
-            console.log(`Annotation object created:`, annotation);
-            
-            const created = await instance.create(annotation);
-            console.log(`Annotation creation result:`, created);
-            
-            if (created && created.id) {
-              annotationId = created.id;
-              console.log(`✅ Successfully created annotation ${annotationId} for issue ${issue.issueId}`);
-              setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, annotationId!));
-            } else {
-              console.error(`❌ Failed to create annotation - no ID returned:`, created);
-              throw new Error(`Annotation creation failed - no ID returned`);
+          if (!colorObj) {
+            throw new Error(`Could not get color for severity ${issue.severity}`);
+          }
+          
+          // Parse rect if needed
+          let rect = issue.rect;
+          if (typeof rect === 'string') {
+            try {
+              rect = JSON.parse(rect);
+            } catch (e) {
+              throw new Error(`Invalid rect JSON: ${rect}`);
             }
           }
+          
+          if (typeof rect.left !== 'number' || typeof rect.top !== 'number' || 
+              typeof rect.width !== 'number' || typeof rect.height !== 'number') {
+            throw new Error(`Invalid rect structure: ${JSON.stringify(rect)}`);
+          }
+          
+          console.log(`🔵 Creating Geometry.Rect with:`, rect);
+          const geometryRect = new Geometry.Rect(rect);
+          console.log(`🔵 Geometry.Rect created:`, geometryRect);
+          
+          // Use plain object format like the adapter does (not Color instance)
+          const color = colorObj; // { r, g, b } format with normalized values
+          console.log(`🔵 Using color:`, color);
+          
+          // Create highlight annotation exactly like the adapter does
+          console.log(`🔵 Creating HighlightAnnotation with:`, {
+            pageIndex: issue.pageIndex,
+            rects: [geometryRect],
+            color: color
+          });
+          
+          const annotation = new Annotations.HighlightAnnotation({
+            pageIndex: issue.pageIndex,
+            rects: [geometryRect],
+            color: color, // Plain { r, g, b } object
+          });
+          
+          console.log(`🔵 Annotation object created:`, annotation);
+          
+          const created = await instance.create(annotation);
+          console.log(`🔵 Annotation creation result:`, created);
+          
+          if (created && created.id) {
+            annotationId = created.id;
+            console.log(`✅ Successfully created annotation ${annotationId} for issue ${issue.issueId}`);
+            setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, annotationId!));
+          } else {
+            console.error(`❌ Failed to create annotation - no ID returned:`, created);
+            throw new Error(`Annotation creation failed - no ID returned. Result: ${JSON.stringify(created)}`);
+          }
         } catch (createErr) {
-          console.error("Failed to create annotation:", createErr);
+          console.error(`❌ Failed to create annotation for issue ${issue.issueId}:`, createErr);
+          console.error(`Error details:`, {
+            error: createErr,
+            message: createErr instanceof Error ? createErr.message : String(createErr),
+            stack: createErr instanceof Error ? createErr.stack : undefined,
+            issueId: issue.issueId,
+            hasRect: !!issue.rect,
+            rect: issue.rect
+          });
+          // Don't fall back silently - show the error
+          toast({
+            title: "Annotation Creation Failed",
+            description: `Could not create highlight: ${createErr instanceof Error ? createErr.message : 'Unknown error'}. Check console for details.`,
+            variant: "destructive",
+          });
+          // Still try to navigate to the page
+          toast({
+            title: "Issue Located",
+            description: `Showing page ${issue.pageIndex + 1} — look for "${issue.foundValue || issue.expectedValue || 'issue'}"`,
+          });
+          return; // Exit early since annotation creation failed
         }
       }
       
       // Select the annotation to make it stand out
       if (annotationId) {
         try {
+          console.log(`🔵 Selecting annotation ${annotationId}...`);
           await instance.setSelectedAnnotation(annotationId);
+          console.log(`✅ Annotation selected successfully`);
           toast({
             title: "Issue Highlighted",
             description: `Showing issue on page ${issue.pageIndex + 1}`,
           });
         } catch (selectErr) {
-          console.error("Failed to select annotation:", selectErr);
+          console.error("❌ Failed to select annotation:", selectErr);
           toast({
             title: "Issue Located",
-            description: `Showing page ${issue.pageIndex + 1}`,
+            description: `Showing page ${issue.pageIndex + 1} (annotation created but selection failed)`,
           });
         }
-      } else {
-        // Fallback to text search if no rect
+      } else if (!issue.rect) {
+        // Only fallback to text search if there's no rect data
         const searchText = issue.foundValue || issue.expectedValue || "";
         if (searchText) {
           try {
@@ -630,7 +657,7 @@ function Workbench() {
               }
             }
           } catch (searchErr) {
-            // search/jumpToRect not available
+            console.error("Search failed:", searchErr);
           }
         }
         toast({
