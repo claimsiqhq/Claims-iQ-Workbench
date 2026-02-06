@@ -1186,37 +1186,37 @@ function Workbench() {
         </div>
       </header>
 
-      <ResizablePanelGroup direction="horizontal" className="flex-1">
+      <ResizablePanelGroup direction="horizontal" className="flex-1 min-w-0">
         <ResizablePanel
           ref={issuesPanelRef}
           defaultSize={25}
-          minSize={15}
+          minSize={20}
           maxSize={45}
           collapsible
           collapsedSize={0}
           onCollapse={() => setShowIssuesPanel(false)}
           onExpand={() => setShowIssuesPanel(true)}
-          className="bg-card flex flex-col overflow-hidden"
+          className="bg-card flex flex-col overflow-hidden min-w-0"
         >
-          <div className="px-3 py-2.5 border-b bg-muted/30">
+          <div className="px-3 py-2.5 border-b bg-muted/30 shrink-0 min-w-0">
             <div className="flex items-center justify-between mb-2">
               <h2 className="font-display font-semibold text-foreground text-sm">Issues</h2>
               {issueBundle && (
                 <span className="text-xs text-muted-foreground">{filteredIssues.length}/{issueCounts.all}</span>
               )}
             </div>
-            <Tabs value={filter} onValueChange={(v) => setFilter(v as any)} className="w-full">
-              <TabsList className="grid w-full grid-cols-4 h-7">
-                <TabsTrigger value="all" className="text-xs px-1" data-testid="filter-all">All {issueCounts.all > 0 && `(${issueCounts.all})`}</TabsTrigger>
-                <TabsTrigger value="open" className="text-xs px-1" data-testid="filter-open">Open {issueCounts.open > 0 && `(${issueCounts.open})`}</TabsTrigger>
-                <TabsTrigger value="applied" className="text-xs px-1" data-testid="filter-applied">Done {issueCounts.applied > 0 && `(${issueCounts.applied})`}</TabsTrigger>
-                <TabsTrigger value="rejected" className="text-xs px-1" data-testid="filter-rejected">Skipped {issueCounts.rejected > 0 && `(${issueCounts.rejected})`}</TabsTrigger>
+            <Tabs value={filter} onValueChange={(v) => setFilter(v as any)} className="w-full min-w-0">
+              <TabsList className="grid w-full grid-cols-4 h-7 min-w-0">
+                <TabsTrigger value="all" className="text-xs px-1 min-w-0 truncate" data-testid="filter-all">All {issueCounts.all > 0 && `(${issueCounts.all})`}</TabsTrigger>
+                <TabsTrigger value="open" className="text-xs px-1 min-w-0 truncate" data-testid="filter-open">Open {issueCounts.open > 0 && `(${issueCounts.open})`}</TabsTrigger>
+                <TabsTrigger value="applied" className="text-xs px-1 min-w-0 truncate" data-testid="filter-applied">Done {issueCounts.applied > 0 && `(${issueCounts.applied})`}</TabsTrigger>
+                <TabsTrigger value="rejected" className="text-xs px-1 min-w-0 truncate" data-testid="filter-rejected">Skipped {issueCounts.rejected > 0 && `(${issueCounts.rejected})`}</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
 
           <ScrollArea className="flex-1">
-            <div className="p-2.5 space-y-2">
+            <div className="p-2.5 space-y-2 w-full overflow-x-hidden">
               {!isDocumentLoaded ? (
                 <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
                   <FileText className="h-8 w-8 text-muted-foreground/40 mb-3" />
@@ -1260,10 +1260,10 @@ function Workbench() {
                       onClick={() => handleIssueClick(issue)}
                       data-testid={`issue-${issue.issueId}`}
                     >
-                      <div className="flex items-start justify-between gap-2 mb-1.5">
-                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                          <SeverityIcon className={cn("h-4 w-4 shrink-0", getSeverityColor(issue.severity).split(" ")[0])} />
-                          <span className="text-sm font-medium truncate">{issue.label || formatCorrectionType(issue.type)}</span>
+                      <div className="flex items-start justify-between gap-2 mb-1.5 min-w-0">
+                        <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                          <SeverityIcon className={cn("h-4 w-4 shrink-0 mt-0.5", getSeverityColor(issue.severity).split(" ")[0])} />
+                          <span className="text-sm font-medium break-words leading-snug min-w-0" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{issue.label || formatCorrectionType(issue.type)}</span>
                         </div>
                         <Badge 
                           variant="outline" 
@@ -1274,36 +1274,36 @@ function Workbench() {
                         </Badge>
                       </div>
 
-                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground mb-2">
+                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground mb-2 flex-wrap">
                         <span>Page {issue.pageIndex + 1}</span>
                         <span>{Math.round(issue.confidence * 100)}%</span>
                         <span className="capitalize">{statusInfo.label}</span>
                       </div>
 
                       {issue.foundValue && issue.expectedValue && (
-                        <div className="rounded bg-muted/50 border p-2 space-y-1 text-xs mb-2">
-                          <div className="flex gap-2">
+                        <div className="rounded bg-muted/50 border p-2 space-y-1 text-xs mb-2 min-w-0">
+                          <div className="flex gap-2 min-w-0 w-full">
                             <span className="text-muted-foreground w-14 shrink-0">Found:</span>
-                            <span className="font-mono text-foreground break-all">{issue.foundValue}</span>
+                            <span className="font-mono text-foreground break-all min-w-0 flex-1" style={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}>{issue.foundValue}</span>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 min-w-0 w-full">
                             <span className="text-muted-foreground w-14 shrink-0">Fix:</span>
-                            <span className="font-mono text-green-600 dark:text-green-400 break-all font-medium">{issue.expectedValue}</span>
+                            <span className="font-mono text-green-600 dark:text-green-400 break-all min-w-0 flex-1 font-medium" style={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}>{issue.expectedValue}</span>
                           </div>
                         </div>
                       )}
 
                       {status === "OPEN" && (
-                        <div className="flex gap-1.5">
+                        <div className="flex gap-1.5 flex-wrap">
                           {issue.suggestedFix.strategy === "auto" && (
-                            <Button size="sm" className="h-7 text-xs flex-1" onClick={(e) => { e.stopPropagation(); handleApplySuggestedFix(issue); }} data-testid={`button-apply-${issue.issueId}`}>
-                              <CheckCircle2 className="h-3 w-3 mr-1" /> Apply
+                            <Button size="sm" className="h-7 text-xs flex-1 min-w-[80px]" onClick={(e) => { e.stopPropagation(); handleApplySuggestedFix(issue); }} data-testid={`button-apply-${issue.issueId}`}>
+                              <CheckCircle2 className="h-3 w-3 mr-1 shrink-0" /> <span className="truncate">Apply</span>
                             </Button>
                           )}
-                          <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={(e) => { e.stopPropagation(); handleManualEdit(issue); }} data-testid={`button-manual-${issue.issueId}`} title="Manual edit">
+                          <Button variant="outline" size="sm" className="h-7 w-7 p-0 shrink-0" onClick={(e) => { e.stopPropagation(); handleManualEdit(issue); }} data-testid={`button-manual-${issue.issueId}`} title="Manual edit">
                             <Edit3 className="h-3 w-3" />
                           </Button>
-                          <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={(e) => { e.stopPropagation(); handleReject(issue); }} data-testid={`button-reject-${issue.issueId}`} title="Reject">
+                          <Button variant="outline" size="sm" className="h-7 w-7 p-0 shrink-0" onClick={(e) => { e.stopPropagation(); handleReject(issue); }} data-testid={`button-reject-${issue.issueId}`} title="Reject">
                             <XCircle className="h-3 w-3" />
                           </Button>
                         </div>
