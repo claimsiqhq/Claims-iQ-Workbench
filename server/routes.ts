@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { supabaseAdmin, isSupabaseConfigured } from "./supabase";
-import { AuditLogSchema, SessionDataSchema, IssueBundleSchema } from "@shared/schema";
+import { AuditLogSchema, SessionDataSchema, IssueBundleSchema, type IssueBundle } from "@shared/schema";
 import { DocumentCorrectionPayloadSchema, CorrectionSchema, AnnotationSchema, CrossDocumentValidationSchema } from "@shared/schemas";
 import { FieldExtractor } from "./services/field-extractor";
 import { CrossDocumentValidator } from "./services/cross-document-validator";
@@ -595,6 +595,8 @@ export async function registerRoutes(
 
       let issuesData: any = null;
       let correctionPayloadResult: any = null;
+      let parsedIssueBundle: IssueBundle | null = null;
+
       try {
         if (files.issues && files.issues.length > 0) {
           const issuesContent = fs.readFileSync(files.issues[0].path, "utf-8");
@@ -628,14 +630,7 @@ export async function registerRoutes(
               dateOfLoss: correctionPayloadResult.claimContext.dateOfLoss,
             };
 
-            const issueBundle = adaptToIssueBundle(issuesData, documentId);
-
-            if (isSupabaseConfigured()) {
-              await storage.saveIssues(claimId, documentId, issueBundle, req.userId);
-            } else {
-              const issuesPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__issues.json`);
-              fs.writeFileSync(issuesPath, JSON.stringify(issueBundle, null, 2));
-            }
+            parsedIssueBundle = adaptToIssueBundle(issuesData, documentId);
 
             const fullPayloadPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__correction_payload.json`);
             fs.writeFileSync(fullPayloadPath, JSON.stringify(correctionPayloadResult, null, 2));
@@ -649,13 +644,7 @@ export async function registerRoutes(
                 details: validated.error.message 
               });
             }
-            
-            if (isSupabaseConfigured()) {
-              await storage.saveIssues(claimId, documentId, validated.data, req.userId);
-            } else {
-              const issuesPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__issues.json`);
-              fs.writeFileSync(issuesPath, JSON.stringify(validated.data, null, 2));
-            }
+            parsedIssueBundle = validated.data;
           }
         }
       } catch (parseError) {
@@ -676,7 +665,9 @@ export async function registerRoutes(
             claimNumber: extractedInfo.claimNumber || claimId,
             policyNumber: extractedInfo.policyNumber,
             status: extractedInfo.status || 'open',
-          });
+            insuredName: extractedInfo.insuredName,
+            dateOfLoss: extractedInfo.dateOfLoss,
+          }, req.userId);
         }
         
         await storage.createDocument({
@@ -685,7 +676,17 @@ export async function registerRoutes(
           title: pdfFile.originalname || `${documentId}.pdf`,
           filePath: storagePath || `public/${documentId}.pdf`,
           fileSize: pdfFile.size,
-        });
+        }, req.userId);
+
+        if (parsedIssueBundle) {
+          try {
+            await storage.saveIssues(claimId, documentId, parsedIssueBundle, req.userId);
+          } catch (issueError) {
+            console.error("Error saving issues (non-fatal):", issueError);
+          }
+        }
+
+        cache.deletePattern("claims");
       } else {
         const index = readIndex();
         let claim = index.claims.find((c) => c.claimId === claimId);
@@ -707,6 +708,11 @@ export async function registerRoutes(
         });
 
         writeIndex(index);
+
+        if (parsedIssueBundle) {
+          const issuesPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__issues.json`);
+          fs.writeFileSync(issuesPath, JSON.stringify(parsedIssueBundle, null, 2));
+        }
       }
 
       await registerWithDocEngine(documentId);

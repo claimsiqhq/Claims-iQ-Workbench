@@ -156,12 +156,15 @@ function mapLocation(loc: any): Location {
   return result as Location;
 }
 
-function mapSeverityForIssue(severity: string): "critical" | "high" | "medium" | "low" {
+function mapSeverityForIssue(severity: string): "critical" | "warning" | "info" {
   switch (severity) {
     case "critical": return "critical";
-    case "warning": return "high";
-    case "info": return "low";
-    default: return "medium";
+    case "warning": return "warning";
+    case "info": return "info";
+    case "high": return "critical";
+    case "medium": return "warning";
+    case "low": return "info";
+    default: return "warning";
   }
 }
 

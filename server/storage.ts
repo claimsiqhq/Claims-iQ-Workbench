@@ -123,9 +123,11 @@ export class SupabaseStorage implements IStorage {
   async getClaims(userId?: string): Promise<Claim[]> {
     if (!supabaseAdmin) return [];
     
+    const isRealUser = userId && userId !== 'system' && userId !== 'anonymous';
+    
     let query = supabaseAdmin.from('claims').select('*');
     
-    if (userId) {
+    if (isRealUser) {
       query = query.eq('user_id', userId);
     }
     
@@ -155,10 +157,12 @@ export class SupabaseStorage implements IStorage {
     const limit = pagination?.limit || DEFAULT_LIMIT;
     const offset = (page - 1) * limit;
     
+    const isRealUser = userId && userId !== 'system' && userId !== 'anonymous';
+    
     let countQuery = supabaseAdmin.from('claims').select('*', { count: 'exact', head: true });
     let dataQuery = supabaseAdmin.from('claims').select('*');
     
-    if (userId) {
+    if (isRealUser) {
       countQuery = countQuery.eq('user_id', userId);
       dataQuery = dataQuery.eq('user_id', userId);
     }
@@ -217,6 +221,8 @@ export class SupabaseStorage implements IStorage {
       throw new Error('Supabase not configured');
     }
     
+    const isRealUser = userId && userId !== 'system' && userId !== 'anonymous';
+    
     const { data, error } = await supabaseAdmin
       .from('claims')
       .insert({
@@ -228,7 +234,7 @@ export class SupabaseStorage implements IStorage {
         date_of_loss: claim.dateOfLoss,
         claim_amount: claim.claimAmount,
         adjuster_name: claim.adjusterName,
-        user_id: userId,
+        user_id: isRealUser ? userId : null,
       })
       .select()
       .single();
@@ -316,6 +322,8 @@ export class SupabaseStorage implements IStorage {
       throw new Error('Supabase not configured');
     }
     
+    const isRealUser = userId && userId !== 'system' && userId !== 'anonymous';
+    
     const { data, error } = await supabaseAdmin
       .from('documents')
       .insert({
@@ -324,7 +332,7 @@ export class SupabaseStorage implements IStorage {
         title: doc.title,
         file_path: doc.filePath,
         file_size: doc.fileSize,
-        user_id: userId,
+        user_id: isRealUser ? userId : null,
       })
       .select()
       .single();
@@ -402,6 +410,8 @@ export class SupabaseStorage implements IStorage {
   async saveIssues(claimId: string, documentId: string, issueBundle: IssueBundle, userId?: string): Promise<void> {
     if (!supabaseAdmin) return;
     
+    const isRealUser = userId && userId !== 'system' && userId !== 'anonymous';
+    
     for (const issue of issueBundle.issues) {
       const { error } = await supabaseAdmin
         .from('issues')
@@ -419,7 +429,7 @@ export class SupabaseStorage implements IStorage {
           label: issue.label,
           suggested_fix: issue.suggestedFix,
           status: issue.status || 'OPEN',
-          user_id: userId,
+          user_id: isRealUser ? userId : null,
         }, { onConflict: 'issue_id' });
       
       if (error) {

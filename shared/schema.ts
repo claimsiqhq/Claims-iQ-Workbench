@@ -34,7 +34,7 @@ export const SuggestedFixSchema = z.object({
 export const IssueSchema = z.object({
   issueId: z.string(),
   type: z.string(),
-  severity: z.enum(["critical", "high", "medium", "low"]),
+  severity: z.enum(["critical", "warning", "info"]),
   confidence: z.number().min(0).max(1),
   pageIndex: z.number().min(0),
   rect: IssueRectSchema,

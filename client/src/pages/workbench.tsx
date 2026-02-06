@@ -342,11 +342,9 @@ function Workbench() {
     switch (severity) {
       case "critical":
         return new instance.Color(239, 68, 68);
-      case "high":
-        return new instance.Color(249, 115, 22);
-      case "medium":
+      case "warning":
         return new instance.Color(234, 179, 8);
-      case "low":
+      case "info":
         return new instance.Color(59, 130, 246);
       default:
         return new instance.Color(107, 114, 128);
@@ -771,11 +769,9 @@ function Workbench() {
     switch (severity) {
       case "critical":
         return AlertTriangle;
-      case "high":
+      case "warning":
         return AlertCircle;
-      case "medium":
-        return Info;
-      case "low":
+      case "info":
         return Info;
       default:
         return AlertCircle;
@@ -786,11 +782,9 @@ function Workbench() {
     switch (severity) {
       case "critical":
         return "text-red-600 bg-red-50 border-red-200 dark:text-red-400 dark:bg-red-950/30 dark:border-red-800";
-      case "high":
-        return "text-orange-600 bg-orange-50 border-orange-200 dark:text-orange-400 dark:bg-orange-950/30 dark:border-orange-800";
-      case "medium":
-        return "text-yellow-600 bg-yellow-50 border-yellow-200 dark:text-yellow-400 dark:bg-yellow-950/30 dark:border-yellow-800";
-      case "low":
+      case "warning":
+        return "text-amber-600 bg-amber-50 border-amber-200 dark:text-amber-400 dark:bg-amber-950/30 dark:border-amber-800";
+      case "info":
         return "text-blue-600 bg-blue-50 border-blue-200 dark:text-blue-400 dark:bg-blue-950/30 dark:border-blue-800";
       default:
         return "text-gray-600 bg-gray-50 border-gray-200 dark:text-gray-400 dark:bg-gray-950/30 dark:border-gray-800";
