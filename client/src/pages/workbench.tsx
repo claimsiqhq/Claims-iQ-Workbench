@@ -131,6 +131,9 @@ function Workbench() {
     setShowValidationPanel,
     currentPage,
     setCurrentPage,
+  } = state;
+
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
     settingsDialogOpen,
     setSettingsDialogOpen,
     notifyOnApply,
@@ -306,6 +309,7 @@ function Workbench() {
     setSessionData(null);
     setIssueAnnotations(new Map());
     setAnnotations([]);
+    setSelectedIssueId(null); // Clear selection when document changes
   }, [selectedDocumentId]);
 
   useEffect(() => {
