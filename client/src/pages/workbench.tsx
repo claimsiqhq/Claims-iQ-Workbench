@@ -399,7 +399,7 @@ function Workbench() {
 
           const annotation = new Annotations.RectangleAnnotation({
             pageIndex: issue.pageIndex,
-            boundingBox: new Geometry.Rect(issue.rect),
+            boundingBox: new Geometry.Rect(validRect),
             strokeColor: color,
             strokeWidth: 4,
             isEditable: false,
