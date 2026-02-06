@@ -18,13 +18,53 @@ export class NutrientAdapter implements PDFProcessorAdapter {
     this.instance = instance;
     
     // Lazy-load Nutrient modules when needed
-    if (instance) {
+    if (!instance) {
+      throw new Error("Cannot initialize adapter: instance is null/undefined");
+    }
+    
+    // Wait and retry for Annotations to become available (SDK may not be fully ready)
+    let retries = 0;
+    const maxRetries = 20; // 4 seconds total
+    
+    while (retries < maxRetries && (!this.Annotations || !this.Geometry)) {
       try {
-        this.Annotations = await instance.Annotations;
-        this.Geometry = await instance.Geometry;
+        if (!this.Annotations) {
+          this.Annotations = await instance.Annotations;
+        }
+        if (!this.Geometry) {
+          this.Geometry = await instance.Geometry;
+        }
+        
+        if (this.Annotations && this.Geometry) {
+          console.log(`✅ NutrientAdapter: Successfully loaded Annotations and Geometry after ${retries + 1} attempt(s)`);
+          console.log("Available annotation types:", Object.keys(this.Annotations).slice(0, 10));
+          return; // Success!
+        }
       } catch (err) {
-        console.warn("Failed to load Nutrient modules:", err);
+        // Not ready yet, continue retrying
+        if (retries === 0) {
+          console.log("🔵 NutrientAdapter: Annotations/Geometry not ready yet, retrying...");
+        }
       }
+      
+      if (!this.Annotations || !this.Geometry) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        retries++;
+      }
+    }
+    
+    // If we get here, initialization failed
+    if (!this.Annotations || !this.Geometry) {
+      const error = new Error(`Failed to load Nutrient modules after ${maxRetries} retries`);
+      console.error("❌ NutrientAdapter: Failed to load modules", {
+        hasAnnotations: !!this.Annotations,
+        hasGeometry: !!this.Geometry,
+        instanceKeys: Object.keys(instance).slice(0, 30),
+        hasInstanceAnnotations: 'Annotations' in instance,
+        instanceAnnotationsType: typeof instance.Annotations,
+        instanceAnnotationsValue: instance.Annotations
+      });
+      throw error;
     }
   }
 

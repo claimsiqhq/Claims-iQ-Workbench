@@ -259,14 +259,36 @@ function Workbench() {
   // Initialize adapter when viewer instance is ready
   useEffect(() => {
     if (instance && isDocumentLoaded) {
-      PDFAdapterFactory.create("nutrient", instance)
-        .then((adapter) => {
+      const initAdapter = async () => {
+        try {
+          console.log("🔵 Creating PDF adapter...");
+          const adapter = await PDFAdapterFactory.create("nutrient", instance);
+          
+          // CRITICAL: Ensure adapter is fully initialized (loads Annotations/Geometry)
+          if (adapter && typeof adapter.initialize === 'function') {
+            console.log("🔵 Initializing adapter (loading Annotations/Geometry modules)...");
+            await adapter.initialize(instance);
+            
+            // Verify modules are loaded
+            const adapterAny = adapter as any;
+            if (adapterAny.Annotations && adapterAny.Geometry) {
+              console.log("✅ Adapter initialized successfully - Annotations and Geometry loaded");
+              console.log("Available annotation types:", Object.keys(adapterAny.Annotations).slice(0, 10));
+            } else {
+              console.warn("⚠️ Adapter initialized but Annotations/Geometry not loaded");
+            }
+          } else {
+            console.warn("⚠️ Adapter does not have initialize method");
+          }
+          
           setPdfAdapter(adapter);
           setFixEngine(new FixEngine(adapter, instance));
-        })
-        .catch((err) => {
-          console.error("Failed to create PDF adapter:", err);
-        });
+        } catch (err) {
+          console.error("❌ Failed to create/initialize PDF adapter:", err);
+        }
+      };
+      
+      initAdapter();
     } else {
       setPdfAdapter(null);
       setFixEngine(null);
@@ -580,14 +602,27 @@ function Workbench() {
             const adapter = pdfAdapter as any;
             Annotations = adapter.Annotations;
             Geometry = adapter.Geometry;
-            console.log("🔵 Using adapter's Annotations and Geometry");
+            
+            if (Annotations && Geometry) {
+              console.log("✅ Using adapter's Annotations and Geometry");
+            } else {
+              console.warn("⚠️ Adapter exists but Annotations/Geometry not loaded. Waiting for initialization...");
+              // Wait a bit and check again
+              await new Promise(resolve => setTimeout(resolve, 500));
+              Annotations = adapter.Annotations;
+              Geometry = adapter.Geometry;
+              
+              if (Annotations && Geometry) {
+                console.log("✅ Adapter Annotations/Geometry loaded after wait");
+              }
+            }
           }
           
           // Fallback: try to load from instance directly
           if (!Annotations || !Geometry) {
             console.log("🔵 Adapter not ready, loading from instance directly...");
             let retries = 0;
-            const maxRetries = 15; // 3 seconds total
+            const maxRetries = 20; // 4 seconds total
             
             while (retries < maxRetries && (!Annotations || !Geometry)) {
               try {
@@ -599,7 +634,7 @@ function Workbench() {
                 }
                 
                 if (Annotations && Geometry) {
-                  console.log(`✅ Annotations and Geometry modules loaded after ${retries + 1} attempts`);
+                  console.log(`✅ Annotations and Geometry modules loaded from instance after ${retries + 1} attempts`);
                   break;
                 }
               } catch (err) {
@@ -615,10 +650,15 @@ function Workbench() {
           
           // Validate that Annotations and Geometry are available
           if (!Annotations) {
-            console.error("❌ Annotations module not available. Instance structure:", {
-              keys: instance ? Object.keys(instance).slice(0, 30) : [],
+            console.error("❌ Annotations module not available. Debug info:", {
+              instanceKeys: instance ? Object.keys(instance).slice(0, 30) : [],
               hasAdapter: !!pdfAdapter,
-              adapterAnnotations: pdfAdapter ? (pdfAdapter as any).Annotations : null
+              adapterType: pdfAdapter ? typeof pdfAdapter : null,
+              adapterKeys: pdfAdapter ? Object.keys(pdfAdapter).slice(0, 20) : [],
+              adapterAnnotations: pdfAdapter ? (pdfAdapter as any).Annotations : null,
+              adapterGeometry: pdfAdapter ? (pdfAdapter as any).Geometry : null,
+              instanceAnnotations: instance?.Annotations,
+              instanceAnnotationsType: typeof instance?.Annotations
             });
             throw new Error("Annotations module not available. Check console for details.");
           }
@@ -1700,8 +1740,8 @@ function Workbench() {
             <div className="h-full flex">
               <div 
                 ref={containerRef} 
-                className="flex-1 h-full relative w-full" 
-                style={{ position: 'relative' }}
+                className="flex-1 h-full w-full" 
+                style={{ position: 'relative', minHeight: '400px' }}
                 data-testid="viewer-container" 
               />
               
