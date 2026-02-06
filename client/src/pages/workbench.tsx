@@ -346,9 +346,11 @@ function Workbench() {
           pageIndex: issue.pageIndex,
           boundingBox: new Geometry.Rect(issue.rect),
           strokeColor: color,
-          strokeWidth: 2,
+          strokeWidth: 3,
           isEditable: false,
-          opacity: 0.3,
+          opacity: 0.4,
+          fillColor: color,
+          fillOpacity: 0.1,
           customData: { issueId: issue.issueId },
         });
 
@@ -471,19 +473,94 @@ function Workbench() {
   };
 
   const handleIssueClick = async (issue: Issue) => {
-    if (!instance) return;
+    if (!instance) {
+      toast({
+        title: "Viewer Not Ready",
+        description: "PDF viewer is still initializing",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Set selected issue for UI highlighting
+    setSelectedIssueId(issue.issueId);
 
     try {
+      // Step 1: Navigate to the page
       await instance.setViewState((viewState: any) =>
         viewState.set("currentPageIndex", issue.pageIndex)
       );
 
-      const annotationId = issueAnnotations.get(issue.issueId);
-      if (annotationId) {
+      // Step 2: Ensure annotation exists, create if needed
+      let annotationId = issueAnnotations.get(issue.issueId);
+      
+      if (!annotationId && issue.rect) {
+        // Create the annotation if it doesn't exist
+        try {
+          const Annotations = await instance.Annotations;
+          const Geometry = await instance.Geometry;
+          const Color = await instance.Color;
+
+          const color = getIssueColor(issue.severity);
+          const annotation = new Annotations.RectangleAnnotation({
+            pageIndex: issue.pageIndex,
+            boundingBox: new Geometry.Rect(issue.rect),
+            strokeColor: color,
+            strokeWidth: 3,
+            isEditable: false,
+            opacity: 0.4,
+            fillColor: color,
+            fillOpacity: 0.1,
+            customData: { issueId: issue.issueId },
+          });
+
+          const createdAnnotation = await instance.create(annotation);
+          annotationId = createdAnnotation.id;
+          setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, annotationId!));
+        } catch (annotationError) {
+          console.error("Failed to create annotation:", annotationError);
+        }
+      }
+
+      // Step 3: Wait a bit for page to render, then select and zoom to annotation
+      if (annotationId && issue.rect) {
+        // Small delay to ensure page is rendered
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Select the annotation (this will highlight it in the viewer)
         await instance.setSelectedAnnotation(annotationId);
+        
+        // Step 4: Try to zoom/pan to fit the annotation in view
+        try {
+          // Try using viewer's built-in methods if available
+          if (typeof instance.zoomToAnnotation === 'function') {
+            await instance.zoomToAnnotation(annotationId);
+          } else if (typeof instance.fitToView === 'function') {
+            const Geometry = await instance.Geometry;
+            const rect = new Geometry.Rect(issue.rect);
+            await instance.fitToView(rect, issue.pageIndex);
+          } else {
+            // Fallback: Set zoom mode to fit width which usually shows annotations better
+            await instance.setViewState((viewState: any) => {
+              return viewState.merge({
+                currentPageIndex: issue.pageIndex,
+                zoom: { zoomMode: 'FIT_TO_WIDTH' }
+              });
+            });
+          }
+        } catch (zoomError) {
+          // If zoom methods aren't available, that's okay - selection still works
+          console.log("Zoom to annotation not available, annotation is selected");
+        }
       }
     } catch (err) {
       console.error("Failed to navigate to issue:", err);
+      toast({
+        title: "Navigation Error",
+        description: err instanceof Error ? err.message : "Failed to navigate to issue",
+        variant: "destructive",
+      });
+      setSelectedIssueId(null);
     }
   };
 
@@ -497,11 +574,19 @@ function Workbench() {
       return;
     }
 
+    // Navigate to issue first if not already there
+    if (selectedIssueId !== issue.issueId) {
+      await handleIssueClick(issue);
+      // Wait a moment for navigation
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
     try {
       const result = await fixEngine.applyFix(issue);
 
       if (result.success) {
         setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "APPLIED"));
+        setSelectedIssueId(null); // Clear selection after applying
         
         await auditMutation.mutateAsync({
           claimId: selectedClaimId,
@@ -535,7 +620,13 @@ function Workbench() {
     }
   };
 
-  const handleManualEdit = (issue: Issue) => {
+  const handleManualEdit = async (issue: Issue) => {
+    // Navigate to issue first if not already there
+    if (selectedIssueId !== issue.issueId) {
+      await handleIssueClick(issue);
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
     setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "MANUAL"));
     
     auditMutation.mutate({
@@ -553,8 +644,15 @@ function Workbench() {
     });
   };
 
-  const handleReject = (issue: Issue) => {
+  const handleReject = async (issue: Issue) => {
+    // Navigate to issue first if not already there
+    if (selectedIssueId !== issue.issueId) {
+      await handleIssueClick(issue);
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
     setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "REJECTED"));
+    setSelectedIssueId(null); // Clear selection after rejecting
     
     auditMutation.mutate({
       claimId: selectedClaimId,
@@ -1270,12 +1368,27 @@ function Workbench() {
                       className={cn(
                         "rounded-lg border p-3 cursor-pointer transition-all hover:shadow-md",
                         "border-l-[3px]",
+                        "hover:bg-accent/50",
+                        selectedIssueId === issue.issueId && "ring-2 ring-primary ring-offset-2 bg-primary/5",
                         status === "OPEN" && "border-l-primary bg-card",
                         status === "APPLIED" && "border-l-green-500 bg-green-50/30 dark:bg-green-950/10",
                         status === "MANUAL" && "border-l-blue-500 bg-blue-50/30 dark:bg-blue-950/10",
                         status === "REJECTED" && "border-l-gray-300 bg-gray-50/30 dark:bg-gray-950/10 opacity-70"
                       )}
-                      onClick={() => handleIssueClick(issue)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleIssueClick(issue);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleIssueClick(issue);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Issue: ${issue.label || formatCorrectionType(issue.type)} on page ${issue.pageIndex + 1}`}
+                      aria-selected={selectedIssueId === issue.issueId}
                       data-testid={`issue-${issue.issueId}`}
                     >
                       <div className="flex items-start justify-between gap-2 mb-1.5 min-w-0">
@@ -1314,14 +1427,46 @@ function Workbench() {
                       {status === "OPEN" && (
                         <div className="flex gap-1.5 flex-wrap">
                           {issue.suggestedFix.strategy === "auto" && (
-                            <Button size="sm" className="h-7 text-xs flex-1 min-w-[80px]" onClick={(e) => { e.stopPropagation(); handleApplySuggestedFix(issue); }} data-testid={`button-apply-${issue.issueId}`}>
-                              <CheckCircle2 className="h-3 w-3 mr-1 shrink-0" /> <span className="truncate">Apply</span>
+                            <Button 
+                              size="sm" 
+                              className="h-7 text-xs flex-1 min-w-[80px]" 
+                              onClick={(e) => { 
+                                e.stopPropagation(); 
+                                handleApplySuggestedFix(issue); 
+                              }} 
+                              data-testid={`button-apply-${issue.issueId}`}
+                              title="Apply suggested fix"
+                            >
+                              <CheckCircle2 className="h-3 w-3 mr-1 shrink-0" /> 
+                              <span className="truncate">Apply</span>
                             </Button>
                           )}
-                          <Button variant="outline" size="sm" className="h-7 w-7 p-0 shrink-0" onClick={(e) => { e.stopPropagation(); handleManualEdit(issue); }} data-testid={`button-manual-${issue.issueId}`} title="Manual edit">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-7 w-7 p-0 shrink-0" 
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              handleManualEdit(issue); 
+                            }} 
+                            data-testid={`button-manual-${issue.issueId}`} 
+                            title="Manual edit"
+                            aria-label="Manual edit"
+                          >
                             <Edit3 className="h-3 w-3" />
                           </Button>
-                          <Button variant="outline" size="sm" className="h-7 w-7 p-0 shrink-0" onClick={(e) => { e.stopPropagation(); handleReject(issue); }} data-testid={`button-reject-${issue.issueId}`} title="Reject">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-7 w-7 p-0 shrink-0" 
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              handleReject(issue); 
+                            }} 
+                            data-testid={`button-reject-${issue.issueId}`} 
+                            title="Reject as false positive"
+                            aria-label="Reject"
+                          >
                             <XCircle className="h-3 w-3" />
                           </Button>
                         </div>
