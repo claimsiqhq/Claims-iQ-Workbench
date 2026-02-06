@@ -1155,7 +1155,7 @@ function Workbench() {
       </header>
 
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        <aside className="w-full lg:w-[340px] xl:w-[380px] border-b lg:border-b-0 lg:border-r bg-card flex flex-col max-h-[35vh] lg:max-h-none">
+        <aside className="w-full lg:w-[340px] xl:w-[380px] shrink-0 border-b lg:border-b-0 lg:border-r bg-card flex flex-col max-h-[35vh] lg:max-h-none overflow-hidden">
           <div className="px-3 py-2.5 border-b bg-muted/30">
             <div className="flex items-center justify-between mb-2">
               <h2 className="font-display font-semibold text-foreground text-sm">Issues</h2>
@@ -1274,7 +1274,7 @@ function Workbench() {
           </ScrollArea>
         </aside>
 
-        <main className="flex-1 bg-muted/20 relative overflow-hidden">
+        <main className="flex-1 min-w-0 bg-muted/20 relative overflow-hidden">
           {viewerLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/90 backdrop-blur-sm z-10">
               <div className="flex flex-col items-center gap-4">
