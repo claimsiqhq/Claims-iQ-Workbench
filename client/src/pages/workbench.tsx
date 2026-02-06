@@ -324,8 +324,81 @@ function Workbench() {
     }
   }, [issueBundle]);
 
-  // Issues are highlighted on-click via text search (dual location strategy)
-  // No automatic annotation drawing — the API-provided rects are placeholders
+  // Draw issue annotations when document and issues are loaded
+  useEffect(() => {
+    if (instance && issueBundle?.issues && isDocumentLoaded && issueBundle.issues.length > 0) {
+      const drawAnnotations = async () => {
+        try {
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for viewer to be ready
+          
+          const Annotations = await instance.Annotations;
+          const Geometry = await instance.Geometry;
+          
+          console.log("Available annotation types:", Object.keys(Annotations));
+          
+          for (const issue of issueBundle.issues) {
+            if (issueAnnotations.has(issue.issueId) || !issue.rect) continue;
+            
+            try {
+              const colorObj = await getIssueColor(issue.severity);
+              if (!colorObj) continue;
+              
+              // Parse rect if needed
+              let rect = issue.rect;
+              if (typeof rect === 'string') {
+                try {
+                  rect = JSON.parse(rect);
+                } catch (e) {
+                  continue;
+                }
+              }
+              
+              if (typeof rect.left !== 'number' || typeof rect.top !== 'number' || 
+                  typeof rect.width !== 'number' || typeof rect.height !== 'number') {
+                continue;
+              }
+              
+              const geometryRect = new Geometry.Rect(rect);
+              
+              // Try to convert color to Color instance
+              let color: any = colorObj;
+              try {
+                const Color = await instance.Color;
+                if (Color && typeof Color === 'function') {
+                  try {
+                    color = new Color(colorObj.r, colorObj.g, colorObj.b);
+                  } catch (e) {
+                    color = colorObj;
+                  }
+                }
+              } catch (err) {
+                color = colorObj;
+              }
+              
+              // Use HighlightAnnotation for visible highlights
+              const annotation = new Annotations.HighlightAnnotation({
+                pageIndex: issue.pageIndex,
+                rects: [geometryRect],
+                color: color,
+                opacity: 0.4, // Make it visible
+              });
+              
+              const created = await instance.create(annotation);
+              if (created && created.id) {
+                setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, created.id));
+              }
+            } catch (err) {
+              console.error(`Failed to create annotation for issue ${issue.issueId}:`, err);
+            }
+          }
+        } catch (err) {
+          console.error("Failed to draw issue annotations:", err);
+        }
+      };
+      
+      drawAnnotations();
+    }
+  }, [instance, issueBundle, isDocumentLoaded]);
 
   const getIssueColor = async (severity: string): Promise<{ r: number; g: number; b: number } | null> => {
     // Determine RGB values based on severity (0-255 range, then normalize to 0-1)
@@ -481,31 +554,111 @@ function Workbench() {
     setSelectedIssueId(issue.issueId);
 
     try {
+      // Navigate to the page
       await instance.setViewState((viewState: any) =>
         viewState.set("currentPageIndex", issue.pageIndex)
       );
 
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 500)); // Wait for page to render
 
-      const searchText = issue.foundValue || issue.expectedValue || "";
-      if (searchText) {
+      // Ensure annotation exists and is visible
+      let annotationId = issueAnnotations.get(issue.issueId);
+      
+      if (!annotationId && issue.rect) {
+        // Create annotation if it doesn't exist
         try {
-          const results = await instance.search(searchText);
-          if (results && results.length > 0) {
-            const pageResults = results.filter((r: any) => r.pageIndex === issue.pageIndex);
-            if (pageResults.length > 0) {
-              await instance.jumpToRect(issue.pageIndex, pageResults[0].rectsOnPage[0]);
+          const Annotations = await instance.Annotations;
+          const Geometry = await instance.Geometry;
+          const colorObj = await getIssueColor(issue.severity);
+          
+          if (colorObj) {
+            // Parse rect if needed
+            let rect = issue.rect;
+            if (typeof rect === 'string') {
+              try {
+                rect = JSON.parse(rect);
+              } catch (e) {
+                throw new Error(`Invalid rect JSON`);
+              }
+            }
+            
+            if (typeof rect.left !== 'number' || typeof rect.top !== 'number' || 
+                typeof rect.width !== 'number' || typeof rect.height !== 'number') {
+              throw new Error(`Invalid rect structure`);
+            }
+            
+            const geometryRect = new Geometry.Rect(rect);
+            
+            // Try to convert color to Color instance
+            let color: any = colorObj;
+            try {
+              const Color = await instance.Color;
+              if (Color && typeof Color === 'function') {
+                try {
+                  color = new Color(colorObj.r, colorObj.g, colorObj.b);
+                } catch (e) {
+                  color = colorObj;
+                }
+              }
+            } catch (err) {
+              color = colorObj;
+            }
+            
+            // Create highlight annotation
+            const annotation = new Annotations.HighlightAnnotation({
+              pageIndex: issue.pageIndex,
+              rects: [geometryRect],
+              color: color,
+              opacity: 0.5, // Make it more visible
+            });
+            
+            const created = await instance.create(annotation);
+            if (created && created.id) {
+              annotationId = created.id;
+              setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, annotationId!));
             }
           }
-        } catch (searchErr) {
-          // search/jumpToRect not available in all SDK versions, just navigate to page
+        } catch (createErr) {
+          console.error("Failed to create annotation:", createErr);
         }
       }
-
-      toast({
-        title: "Issue Located",
-        description: `Showing page ${issue.pageIndex + 1} — look for "${searchText}"`,
-      });
+      
+      // Select the annotation to make it stand out
+      if (annotationId) {
+        try {
+          await instance.setSelectedAnnotation(annotationId);
+          toast({
+            title: "Issue Highlighted",
+            description: `Showing issue on page ${issue.pageIndex + 1}`,
+          });
+        } catch (selectErr) {
+          console.error("Failed to select annotation:", selectErr);
+          toast({
+            title: "Issue Located",
+            description: `Showing page ${issue.pageIndex + 1}`,
+          });
+        }
+      } else {
+        // Fallback to text search if no rect
+        const searchText = issue.foundValue || issue.expectedValue || "";
+        if (searchText) {
+          try {
+            const results = await instance.search(searchText);
+            if (results && results.length > 0) {
+              const pageResults = results.filter((r: any) => r.pageIndex === issue.pageIndex);
+              if (pageResults.length > 0) {
+                await instance.jumpToRect(issue.pageIndex, pageResults[0].rectsOnPage[0]);
+              }
+            }
+          } catch (searchErr) {
+            // search/jumpToRect not available
+          }
+        }
+        toast({
+          title: "Issue Located",
+          description: `Showing page ${issue.pageIndex + 1}${searchText ? ` — look for "${searchText}"` : ''}`,
+        });
+      }
     } catch (err) {
       console.error("Failed to navigate to issue:", err);
       toast({
