@@ -14,57 +14,62 @@ export class NutrientAdapter implements PDFProcessorAdapter {
   private Annotations: any;
   private Geometry: any;
 
-  async initialize(instance: any): Promise<void> {
+  async initialize(instance: any, module?: any): Promise<void> {
     this.instance = instance;
     
-    // Lazy-load Nutrient modules when needed
     if (!instance) {
       throw new Error("Cannot initialize adapter: instance is null/undefined");
     }
-    
-    // Wait and retry for Annotations to become available (SDK may not be fully ready)
-    let retries = 0;
-    const maxRetries = 20; // 4 seconds total
-    
-    while (retries < maxRetries && (!this.Annotations || !this.Geometry)) {
-      try {
-        if (!this.Annotations) {
-          this.Annotations = await instance.Annotations;
-        }
-        if (!this.Geometry) {
-          this.Geometry = await instance.Geometry;
+
+    // Prefer using the module directly if provided
+    if (module) {
+      console.log("✅ NutrientAdapter: Using provided NutrientViewer module");
+      this.Annotations = module.Annotations;
+      this.Geometry = module.Geometry;
+    }
+
+    // Fallback to instance if module not provided or properties missing
+    if (!this.Annotations && instance.Annotations) {
+      this.Annotations = await instance.Annotations;
+    }
+    if (!this.Geometry && instance.Geometry) {
+      this.Geometry = await instance.Geometry;
+    }
+
+    // If still missing, try waiting (legacy fallback)
+    if (!this.Annotations || !this.Geometry) {
+      let retries = 0;
+      const maxRetries = 20; // 4 seconds total
+      
+      while (retries < maxRetries && (!this.Annotations || !this.Geometry)) {
+        try {
+          if (!this.Annotations) {
+            this.Annotations = await instance.Annotations;
+          }
+          if (!this.Geometry) {
+            this.Geometry = await instance.Geometry;
+          }
+          
+          if (this.Annotations && this.Geometry) {
+            console.log(`✅ NutrientAdapter: Successfully loaded Annotations and Geometry after ${retries + 1} attempt(s)`);
+            break;
+          }
+        } catch (err) {
+          // Not ready yet
         }
         
-        if (this.Annotations && this.Geometry) {
-          console.log(`✅ NutrientAdapter: Successfully loaded Annotations and Geometry after ${retries + 1} attempt(s)`);
-          console.log("Available annotation types:", Object.keys(this.Annotations).slice(0, 10));
-          return; // Success!
-        }
-      } catch (err) {
-        // Not ready yet, continue retrying
-        if (retries === 0) {
-          console.log("🔵 NutrientAdapter: Annotations/Geometry not ready yet, retrying...");
-        }
-      }
-      
-      if (!this.Annotations || !this.Geometry) {
         await new Promise(resolve => setTimeout(resolve, 200));
         retries++;
       }
     }
     
-    // If we get here, initialization failed
     if (!this.Annotations || !this.Geometry) {
-      const error = new Error(`Failed to load Nutrient modules after ${maxRetries} retries`);
-      console.error("❌ NutrientAdapter: Failed to load modules", {
+      console.warn("⚠️ NutrientAdapter: Annotations or Geometry modules not fully loaded. Some features may fail.", {
         hasAnnotations: !!this.Annotations,
-        hasGeometry: !!this.Geometry,
-        instanceKeys: Object.keys(instance).slice(0, 30),
-        hasInstanceAnnotations: 'Annotations' in instance,
-        instanceAnnotationsType: typeof instance.Annotations,
-        instanceAnnotationsValue: instance.Annotations
+        hasGeometry: !!this.Geometry
       });
-      throw error;
+    } else {
+      console.log("Available annotation types:", Object.keys(this.Annotations).slice(0, 10));
     }
   }
 
@@ -272,11 +277,16 @@ export class NutrientAdapter implements PDFProcessorAdapter {
     }
 
     try {
-      if (!this.Annotations) {
+      // Ensure modules are loaded (should be done in initialize, but double check)
+      if (!this.Annotations && this.instance.Annotations) {
         this.Annotations = await this.instance.Annotations;
       }
-      if (!this.Geometry) {
+      if (!this.Geometry && this.instance.Geometry) {
         this.Geometry = await this.instance.Geometry;
+      }
+
+      if (!this.Annotations || !this.Geometry) {
+        throw new Error("Annotations or Geometry module not available");
       }
 
       const rect = new this.Geometry.Rect({
@@ -287,14 +297,29 @@ export class NutrientAdapter implements PDFProcessorAdapter {
       });
 
       let nativeAnnotation: any;
+      const color = this.hexToColor(annotation.color || "#FFFF00");
 
       switch (annotation.type) {
         case "highlight":
-          nativeAnnotation = new this.Annotations.HighlightAnnotation({
-            pageIndex: bbox.pageIndex,
-            rects: [rect],
-            color: this.hexToColor(annotation.color || "#FFFF00"),
-          });
+          try {
+            // Try HighlightAnnotation first (best for text)
+            nativeAnnotation = new this.Annotations.HighlightAnnotation({
+              pageIndex: bbox.pageIndex,
+              rects: [rect],
+              color: color,
+            });
+          } catch (e) {
+            console.warn("HighlightAnnotation failed, falling back to RectangleAnnotation", e);
+            // Fallback to RectangleAnnotation (works for any area)
+            // Use transparent fill and colored stroke to simulate highlight
+            nativeAnnotation = new this.Annotations.RectangleAnnotation({
+              pageIndex: bbox.pageIndex,
+              boundingBox: rect,
+              strokeColor: color,
+              strokeWidth: 2,
+              fillColor: { r: color.r, g: color.g, b: color.b, a: 0.3 }, // Semi-transparent fill
+            });
+          }
           break;
 
         case "comment":
@@ -376,6 +401,7 @@ export class NutrientAdapter implements PDFProcessorAdapter {
       return {
         success: true,
         native_id: id,
+        error: null,
       };
     } catch (err) {
       return {

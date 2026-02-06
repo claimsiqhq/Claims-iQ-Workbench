@@ -251,7 +251,7 @@ function Workbench() {
     return undefined;
   }, [isDocumentLoaded, selectedDocumentId, sessionData]);
 
-  const { instance, isLoading: viewerLoading, containerRef } = useNutrientViewer({
+  const { instance, isLoading: viewerLoading, containerRef, NutrientViewer } = useNutrientViewer({
     documentUrl: documentUrl,
     instant: instantConfig,
   });
@@ -262,12 +262,13 @@ function Workbench() {
       const initAdapter = async () => {
         try {
           console.log("🔵 Creating PDF adapter...");
-          const adapter = await PDFAdapterFactory.create("nutrient", instance);
+          const adapter = await PDFAdapterFactory.create("nutrient", instance, NutrientViewer);
           
           // CRITICAL: Ensure adapter is fully initialized (loads Annotations/Geometry)
           if (adapter && typeof adapter.initialize === 'function') {
             console.log("🔵 Initializing adapter (loading Annotations/Geometry modules)...");
-            await adapter.initialize(instance);
+            // Pass NutrientViewer module if available
+            await adapter.initialize(instance, NutrientViewer);
             
             // Verify modules are loaded
             const adapterAny = adapter as any;
@@ -293,7 +294,7 @@ function Workbench() {
       setPdfAdapter(null);
       setFixEngine(null);
     }
-  }, [instance, isDocumentLoaded]);
+  }, [instance, isDocumentLoaded, NutrientViewer]);
 
   // Fetch annotations when document is loaded
   const { data: fetchedAnnotations } = useQuery({
@@ -361,13 +362,21 @@ function Workbench() {
           
           // Use the adapter's Annotations and Geometry (they're already loaded)
           const adapter = pdfAdapter as any;
-          if (!adapter.Annotations || !adapter.Geometry) {
+          
+          let Annotations = adapter.Annotations;
+          let Geometry = adapter.Geometry;
+
+          // Prefer global module if available
+          if (NutrientViewer) {
+             Annotations = NutrientViewer.Annotations;
+             Geometry = NutrientViewer.Geometry;
+             console.log("✅ Using global NutrientViewer module for drawAnnotations");
+          }
+          
+          if (!Annotations || !Geometry) {
             console.error("❌ Adapter modules not loaded. Waiting for adapter initialization...");
             return;
           }
-          
-          const Annotations = adapter.Annotations;
-          const Geometry = adapter.Geometry;
           
           console.log("✅ Using adapter's Annotations and Geometry modules");
           
@@ -415,11 +424,23 @@ function Workbench() {
               });
               
               // Use HighlightAnnotation exactly like the adapter does
-              const annotation = new Annotations.HighlightAnnotation({
-                pageIndex: issue.pageIndex,
-                rects: [geometryRect],
-                color: color, // Plain { r, g, b } object
-              });
+              let annotation;
+              try {
+                annotation = new Annotations.HighlightAnnotation({
+                  pageIndex: issue.pageIndex,
+                  rects: [geometryRect],
+                  color: color, // Plain { r, g, b } object
+                });
+              } catch (e) {
+                console.warn("HighlightAnnotation failed in drawAnnotations, falling back to RectangleAnnotation", e);
+                annotation = new Annotations.RectangleAnnotation({
+                  pageIndex: issue.pageIndex,
+                  boundingBox: geometryRect,
+                  strokeColor: color,
+                  strokeWidth: 2,
+                  fillColor: { r: color.r, g: color.g, b: color.b, a: 0.3 },
+                });
+              }
               
               console.log(`Created annotation object:`, annotation);
               
@@ -598,7 +619,17 @@ function Workbench() {
           let Annotations: any = null;
           let Geometry: any = null;
           
-          if (pdfAdapter) {
+          // 1. Try global module first (most reliable)
+          if (NutrientViewer) {
+            Annotations = NutrientViewer.Annotations;
+            Geometry = NutrientViewer.Geometry;
+            if (Annotations && Geometry) {
+              console.log("✅ Using global NutrientViewer module for Annotations/Geometry");
+            }
+          }
+
+          // 2. Fallback to adapter
+          if ((!Annotations || !Geometry) && pdfAdapter) {
             const adapter = pdfAdapter as any;
             Annotations = adapter.Annotations;
             Geometry = adapter.Geometry;
@@ -618,7 +649,7 @@ function Workbench() {
             }
           }
           
-          // Fallback: try to load from instance directly
+          // 3. Fallback: try to load from instance directly
           if (!Annotations || !Geometry) {
             console.log("🔵 Adapter not ready, loading from instance directly...");
             let retries = 0;
@@ -703,11 +734,23 @@ function Workbench() {
             color: color
           });
           
-          const annotation = new Annotations.HighlightAnnotation({
-            pageIndex: issue.pageIndex,
-            rects: [geometryRect],
-            color: color, // Plain { r, g, b } object
-          });
+          let annotation;
+          try {
+            annotation = new Annotations.HighlightAnnotation({
+              pageIndex: issue.pageIndex,
+              rects: [geometryRect],
+              color: color, // Plain { r, g, b } object
+            });
+          } catch (e) {
+             console.warn("HighlightAnnotation failed in handleIssueClick, falling back to RectangleAnnotation", e);
+             annotation = new Annotations.RectangleAnnotation({
+               pageIndex: issue.pageIndex,
+               boundingBox: geometryRect,
+               strokeColor: color,
+               strokeWidth: 2,
+               fillColor: { r: color.r, g: color.g, b: color.b, a: 0.3 },
+             });
+          }
           
           console.log(`🔵 Annotation object created:`, annotation);
           

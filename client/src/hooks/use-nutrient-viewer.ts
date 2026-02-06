@@ -90,5 +90,6 @@ export function useNutrientViewer(options: NutrientViewerOptions) {
     isLoading,
     error,
     containerRef,
+    NutrientViewer, // Expose the module for direct access to Annotations/Geometry
   };
 }

@@ -37,7 +37,7 @@ export interface AnnotationResult {
  */
 export interface PDFProcessorAdapter {
   // Lifecycle
-  initialize(instance: any): Promise<void>;
+  initialize(instance: any, module?: any): Promise<void>;
   dispose(): Promise<void>;
   
   // Text Corrections

@@ -10,7 +10,8 @@ export type PDFProcessorType = "nutrient" | "pdfjs" | "custom";
 export class PDFAdapterFactory {
   static async create(
     type: PDFProcessorType,
-    instance: any
+    instance: any,
+    module?: any
   ): Promise<PDFProcessorAdapter> {
     let adapter: PDFProcessorAdapter;
 
@@ -27,7 +28,7 @@ export class PDFAdapterFactory {
         throw new Error(`Unknown processor type: ${type}`);
     }
 
-    await adapter.initialize(instance);
+    await adapter.initialize(instance, module);
     return adapter;
   }
 }
