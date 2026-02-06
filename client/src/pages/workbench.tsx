@@ -742,38 +742,179 @@ function Workbench() {
   };
 
   const handleApplySuggestedFix = async (issue: Issue) => {
+    if (!instance) {
+      toast({
+        title: "Viewer Not Ready",
+        description: "PDF viewer is still initializing",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!issue.foundValue || !issue.expectedValue) {
+      toast({
+        title: "Cannot Apply",
+        description: "Missing found value or expected value for this correction",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Navigate to the issue first if not already selected
     if (selectedIssueId !== issue.issueId) {
       await handleIssueClick(issue);
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
 
     try {
-      setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "APPLIED"));
-      setSelectedIssueId(null);
+      let correctionApplied = false;
+      let correctionMethod = "none";
 
-      await Promise.all([
-        api.updateIssueStatus(issue.issueId, "APPLIED").catch(() => {}),
-        auditMutation.mutateAsync({
-          claimId: selectedClaimId,
-          documentId: selectedDocumentId,
-          issueId: issue.issueId,
-          action: "applied",
-          method: "accepted",
-          before: issue.foundValue || "",
-          after: issue.expectedValue || "",
-          user: username,
-          ts: new Date().toISOString(),
-        }),
-      ]);
+      // Strategy 1: Content editing — find the text block and replace the text
+      try {
+        const session = await instance.beginContentEditingSession();
+        const textBlocks = await session.getTextBlocks(issue.pageIndex);
+        
+        // Find the text block that contains the foundValue
+        const targetBlock = textBlocks.find((block: any) => {
+          return block.text && block.text.includes(issue.foundValue);
+        });
 
-      toast({
-        title: "Correction Accepted",
-        description: `"${issue.foundValue}" → "${issue.expectedValue}" recorded`,
-      });
+        if (targetBlock) {
+          const updatedText = targetBlock.text.replace(
+            issue.foundValue,
+            issue.expectedValue
+          );
+          
+          await session.updateTextBlocks([
+            { id: targetBlock.id, text: updatedText },
+          ]);
+          await session.commit();
+          
+          correctionApplied = true;
+          correctionMethod = "content_edit";
+        } else {
+          // No matching text block found — cancel editing session
+          await session.cancel();
+          console.warn(`Content edit: text "${issue.foundValue}" not found in text blocks on page ${issue.pageIndex}`);
+        }
+      } catch (contentEditErr) {
+        console.warn("Content editing failed:", contentEditErr);
+      }
+
+      // Strategy 2: Redaction overlay — cover old text and stamp new text
+      if (!correctionApplied) {
+        try {
+          // Search for the text to get its position
+          const searchResults = await instance.search(issue.foundValue);
+          
+          if (searchResults && searchResults.size > 0) {
+            const pageResults = searchResults.filter(
+              (r: any) => r.pageIndex === issue.pageIndex
+            );
+            const result = pageResults.size > 0 ? pageResults.get(0) : searchResults.get(0);
+            
+            if (result?.rectsOnPage?.size > 0) {
+              const Annotations = NutrientViewer?.Annotations;
+              
+              if (Annotations) {
+                // Create a redaction annotation over the found text
+                try {
+                  const annotation = new Annotations.RedactionAnnotation({
+                    pageIndex: result.pageIndex,
+                    rects: result.rectsOnPage,
+                    overlayText: issue.expectedValue,
+                  });
+                  
+                  const created = await instance.create(annotation);
+                  if (created?.id) {
+                    // Apply the redaction to actually modify the document
+                    try {
+                      await instance.applyRedactions();
+                      correctionApplied = true;
+                      correctionMethod = "redaction_overlay";
+                    } catch (applyErr) {
+                      console.warn("Redaction apply failed, keeping as annotation:", applyErr);
+                      correctionApplied = true;
+                      correctionMethod = "redaction_annotation";
+                    }
+                  }
+                } catch (redactErr) {
+                  console.warn("Redaction annotation failed:", redactErr);
+                }
+              }
+            }
+          }
+        } catch (searchErr) {
+          console.warn("Search for redaction overlay failed:", searchErr);
+        }
+      }
+
+      // Strategy 3: Text annotation as a visual marker for the correction
+      if (!correctionApplied) {
+        try {
+          const searchResults = await instance.search(issue.foundValue);
+          
+          if (searchResults && searchResults.size > 0) {
+            const result = searchResults.get(0);
+            
+            if (result?.rectsOnPage?.size > 0) {
+              const Annotations = NutrientViewer?.Annotations;
+              
+              if (Annotations?.NoteAnnotation) {
+                const annotation = new Annotations.NoteAnnotation({
+                  pageIndex: result.pageIndex,
+                  boundingBox: result.rectsOnPage.get(0),
+                  text: { value: `CORRECTION: "${issue.foundValue}" → "${issue.expectedValue}"\n\n${issue.label || ""}` },
+                });
+                
+                await instance.create(annotation);
+                correctionApplied = true;
+                correctionMethod = "note_annotation";
+              }
+            }
+          }
+        } catch (noteErr) {
+          console.warn("Note annotation fallback failed:", noteErr);
+        }
+      }
+
+      if (correctionApplied) {
+        // Update status and log audit
+        setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "APPLIED"));
+        setSelectedIssueId(null);
+
+        await Promise.all([
+          api.updateIssueStatus(issue.issueId, "APPLIED").catch(() => {}),
+          auditMutation.mutateAsync({
+            claimId: selectedClaimId,
+            documentId: selectedDocumentId,
+            issueId: issue.issueId,
+            action: "applied",
+            method: correctionMethod,
+            before: issue.foundValue,
+            after: issue.expectedValue,
+            user: username,
+            ts: new Date().toISOString(),
+          }),
+        ]);
+
+        toast({
+          title: "Correction Applied",
+          description: `"${issue.foundValue}" → "${issue.expectedValue}" (via ${correctionMethod.replace(/_/g, " ")})`,
+        });
+      } else {
+        toast({
+          title: "Correction Could Not Be Applied",
+          description: `The text "${issue.foundValue}" could not be automatically corrected. Try manual edit instead.`,
+          variant: "destructive",
+        });
+      }
     } catch (err) {
+      console.error("Failed to apply correction:", err);
       toast({
         title: "Error",
-        description: "Failed to record correction",
+        description: err instanceof Error ? err.message : "Failed to apply correction",
         variant: "destructive",
       });
     }
