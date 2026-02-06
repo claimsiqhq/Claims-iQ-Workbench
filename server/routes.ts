@@ -411,24 +411,23 @@ export async function registerRoutes(
     });
   });
 
-  app.get("/api/schema", authenticateRequest, (req, res) => {
-    const schema = getActiveSchema();
-    sendSuccess(res, {
-      version: getSchemaVersion(),
-      title: getSchemaTitle(),
-      schema: schema,
-      hasCustomSchema: fs.existsSync(path.join(process.cwd(), "server", "schemas", "active_schema.json")),
-    });
+  app.get("/api/schema", authenticateRequest, async (req, res) => {
+    try {
+      const info = await getSchemaInfo();
+      sendSuccess(res, info);
+    } catch (error) {
+      sendError(res, 500, "SCHEMA_ERROR", "Failed to fetch schema info");
+    }
   });
 
-  app.post("/api/schema", authenticateRequest, (req, res) => {
+  app.post("/api/schema", authenticateRequest, async (req, res) => {
     try {
       const schemaContent = req.body;
       if (!schemaContent || typeof schemaContent !== "object") {
         return sendError(res, 400, "INVALID_SCHEMA", "Request body must be a valid JSON Schema object");
       }
 
-      const result = saveActiveSchema(schemaContent);
+      const result = await saveActiveSchema(schemaContent, req.userId);
       if (!result.success) {
         return sendError(res, 400, "SCHEMA_SAVE_FAILED", result.error || "Failed to save schema");
       }
@@ -443,23 +442,24 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/schema", authenticateRequest, (req, res) => {
+  app.delete("/api/schema", authenticateRequest, async (req, res) => {
     try {
-      const customPath = path.join(process.cwd(), "server", "schemas", "active_schema.json");
-      if (fs.existsSync(customPath)) {
-        fs.unlinkSync(customPath);
+      const result = await deleteActiveSchema();
+      if (!result.success) {
+        return sendError(res, 500, "SCHEMA_ERROR", result.error || "Failed to remove custom schema");
       }
+      const info = await getSchemaInfo();
       sendSuccess(res, {
         message: "Custom schema removed, reverted to default",
-        version: getSchemaVersion(),
-        title: getSchemaTitle(),
+        version: info.version,
+        title: info.title,
       });
     } catch (error) {
       sendError(res, 500, "SCHEMA_ERROR", "Failed to remove custom schema");
     }
   });
 
-  app.post("/api/schema/validate", authenticateRequest, (req, res) => {
+  app.post("/api/schema/validate", authenticateRequest, async (req, res) => {
     try {
       const payload = req.body;
       if (!payload || typeof payload !== "object") {
@@ -467,13 +467,13 @@ export async function registerRoutes(
       }
 
       const isCorrection = isClaimsIQPayload(payload);
-      const validation = validateAgainstSchema(payload);
+      const validation = await validateAgainstSchema(payload);
 
       sendSuccess(res, {
         isClaimsIQPayload: isCorrection,
         valid: validation.valid,
         errors: validation.errors || [],
-        schemaVersion: getSchemaVersion(),
+        schemaVersion: await getSchemaVersion(),
       });
     } catch (error) {
       sendError(res, 500, "VALIDATION_ERROR", "Failed to validate payload");
@@ -612,7 +612,7 @@ export async function registerRoutes(
 
         if (issuesData) {
           if (isClaimsIQPayload(issuesData)) {
-            const schemaValidation = validateAgainstSchema(issuesData);
+            const schemaValidation = await validateAgainstSchema(issuesData);
             if (!schemaValidation.valid) {
               fs.unlinkSync(pdfPath);
               return res.status(400).json({
