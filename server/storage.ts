@@ -377,20 +377,41 @@ export class SupabaseStorage implements IStorage {
       };
     }
     
-    const issues = (data || []).map(row => ({
-      issueId: row.issue_id,
-      type: row.type,
-      severity: row.severity,
-      confidence: parseFloat(row.confidence),
-      pageIndex: row.page_index,
-      rect: row.rect,
-      foundValue: row.found_value,
-      expectedValue: row.expected_value,
-      formFieldName: row.form_field_name,
-      label: row.label,
-      suggestedFix: row.suggested_fix,
-      status: row.status,
-    }));
+    const issues = (data || []).map(row => {
+      // Ensure rect is properly parsed from JSONB
+      // Supabase returns JSONB as an object, but sometimes it might be a string
+      let rect = row.rect;
+      if (typeof rect === 'string') {
+        try {
+          rect = JSON.parse(rect);
+        } catch (e) {
+          console.error(`Failed to parse rect for issue ${row.issue_id}:`, e);
+          rect = null;
+        }
+      }
+      
+      // Validate rect structure
+      if (rect && (typeof rect.left !== 'number' || typeof rect.top !== 'number' || 
+          typeof rect.width !== 'number' || typeof rect.height !== 'number')) {
+        console.warn(`Issue ${row.issue_id} has invalid rect structure:`, rect);
+        rect = null;
+      }
+      
+      return {
+        issueId: row.issue_id,
+        type: row.type,
+        severity: row.severity,
+        confidence: parseFloat(row.confidence),
+        pageIndex: row.page_index,
+        rect: rect, // Can be null if missing or invalid
+        foundValue: row.found_value,
+        expectedValue: row.expected_value,
+        formFieldName: row.form_field_name,
+        label: row.label,
+        suggestedFix: row.suggested_fix || { strategy: "auto", requiresApproval: true, fallbackOrder: ["form_field", "content_edit", "redaction_overlay"] },
+        status: row.status,
+      };
+    });
     
     return {
       schemaVersion: "1.0",

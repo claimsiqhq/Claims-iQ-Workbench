@@ -354,10 +354,41 @@ function Workbench() {
           continue;
         }
 
+        // Check if rect exists and is valid
         if (!issue.rect) {
-          console.warn(`Issue ${issue.issueId} has no rect, skipping annotation`);
+          console.warn(`Issue ${issue.issueId} has no rect, skipping annotation`, issue);
           continue;
         }
+        
+        // Validate rect structure
+        if (!issue.rect) {
+          console.warn(`Issue ${issue.issueId} has no rect, skipping annotation`, issue);
+          continue;
+        }
+        
+        // Handle rect that might be a string (from JSONB) or already an object
+        let rect = issue.rect;
+        if (typeof rect === 'string') {
+          try {
+            rect = JSON.parse(rect);
+          } catch (e) {
+            console.warn(`Issue ${issue.issueId} has invalid rect JSON:`, rect);
+            continue;
+          }
+        }
+        
+        // Validate rect structure
+        if (typeof rect !== 'object' || 
+            typeof rect.left !== 'number' || 
+            typeof rect.top !== 'number' || 
+            typeof rect.width !== 'number' || 
+            typeof rect.height !== 'number') {
+          console.warn(`Issue ${issue.issueId} has invalid rect structure:`, rect);
+          continue;
+        }
+        
+        // Use parsed/validated rect
+        const validRect = rect;
 
         try {
           const color = await getIssueColor(issue.severity);
@@ -560,6 +591,14 @@ function Workbench() {
       // Step 3: Ensure annotation exists, create if needed
       let annotationId = issueAnnotations.get(issue.issueId);
       
+      // Debug: Log issue data
+      console.log(`Issue data for ${issue.issueId}:`, {
+        hasRect: !!issue.rect,
+        rect: issue.rect,
+        pageIndex: issue.pageIndex,
+        existingAnnotationId: annotationId
+      });
+      
       if (!annotationId && issue.rect) {
         console.log(`Creating annotation for issue ${issue.issueId}`);
         // Create the annotation if it doesn't exist
@@ -573,9 +612,25 @@ function Workbench() {
             throw new Error(`Could not get color for severity ${issue.severity}`);
           }
 
+          // Parse rect if it's a string
+          let rect = issue.rect;
+          if (typeof rect === 'string') {
+            try {
+              rect = JSON.parse(rect);
+            } catch (e) {
+              throw new Error(`Invalid rect JSON: ${rect}`);
+            }
+          }
+          
+          // Validate rect
+          if (!rect || typeof rect.left !== 'number' || typeof rect.top !== 'number' || 
+              typeof rect.width !== 'number' || typeof rect.height !== 'number') {
+            throw new Error(`Invalid rect structure: ${JSON.stringify(rect)}`);
+          }
+
           const annotation = new Annotations.RectangleAnnotation({
             pageIndex: issue.pageIndex,
-            boundingBox: new Geometry.Rect(issue.rect),
+            boundingBox: new Geometry.Rect(rect),
             strokeColor: color,
             strokeWidth: 4,
             isEditable: false,
@@ -625,8 +680,13 @@ function Workbench() {
               await instance.zoomToAnnotation(annotationId);
             } else if (typeof instance.fitToView === 'function') {
               const Geometry = await instance.Geometry;
-              const rect = new Geometry.Rect(issue.rect);
-              await instance.fitToView(rect, issue.pageIndex);
+              // Parse rect if needed
+              let rect = issue.rect;
+              if (typeof rect === 'string') {
+                rect = JSON.parse(rect);
+              }
+              const geometryRect = new Geometry.Rect(rect);
+              await instance.fitToView(geometryRect, issue.pageIndex);
             }
           } catch (zoomError) {
             console.log("Zoom methods not available, continuing with selection");
@@ -645,11 +705,76 @@ function Workbench() {
           });
         }
       } else {
-        console.warn(`No annotation ID found for issue ${issue.issueId}`);
-        toast({
-          title: "No Annotation",
-          description: `Issue on page ${issue.pageIndex + 1} (no location data)`,
+        console.warn(`No annotation ID found for issue ${issue.issueId}`, {
+          hasRect: !!issue.rect,
+          rect: issue.rect,
+          annotationId: issueAnnotations.get(issue.issueId),
+          allAnnotations: Array.from(issueAnnotations.entries())
         });
+        
+        // Check if issue has rect data
+        if (!issue.rect) {
+          toast({
+            title: "No Location Data",
+            description: `This issue doesn't have location coordinates (rect) to display on the PDF. Page ${issue.pageIndex + 1}`,
+            variant: "destructive",
+          });
+        } else {
+          // Issue has rect but annotation wasn't created - try to create it now
+          console.log(`Issue has rect but no annotation, attempting to create now`);
+          try {
+            const Annotations = await instance.Annotations;
+            const Geometry = await instance.Geometry;
+            const color = await getIssueColor(issue.severity);
+            
+            if (color) {
+              // Parse rect if needed
+              let rect = issue.rect;
+              if (typeof rect === 'string') {
+                try {
+                  rect = JSON.parse(rect);
+                } catch (e) {
+                  throw new Error(`Invalid rect JSON: ${rect}`);
+                }
+              }
+              
+              // Validate rect
+              if (!rect || typeof rect.left !== 'number' || typeof rect.top !== 'number' || 
+                  typeof rect.width !== 'number' || typeof rect.height !== 'number') {
+                throw new Error(`Invalid rect structure: ${JSON.stringify(rect)}`);
+              }
+              
+              const annotation = new Annotations.RectangleAnnotation({
+                pageIndex: issue.pageIndex,
+                boundingBox: new Geometry.Rect(rect),
+                strokeColor: color,
+                strokeWidth: 4,
+                isEditable: false,
+                opacity: 0.7,
+                fillColor: color,
+                fillOpacity: 0.25,
+                customData: { issueId: issue.issueId },
+              });
+
+              const createdAnnotation = await instance.create(annotation);
+              if (createdAnnotation && createdAnnotation.id) {
+                setIssueAnnotations((prev) => new Map(prev).set(issue.issueId, createdAnnotation.id));
+                await instance.setSelectedAnnotation(createdAnnotation.id);
+                toast({
+                  title: "Issue Highlighted",
+                  description: `Showing issue on page ${issue.pageIndex + 1}`,
+                });
+              }
+            }
+          } catch (createErr) {
+            console.error("Failed to create annotation on click:", createErr);
+            toast({
+              title: "Could Not Highlight",
+              description: `Issue on page ${issue.pageIndex + 1} - annotation creation failed`,
+              variant: "destructive",
+            });
+          }
+        }
       }
     } catch (err) {
       console.error("Failed to navigate to issue:", err);
