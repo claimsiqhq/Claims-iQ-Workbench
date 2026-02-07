@@ -184,17 +184,17 @@ function Workbench() {
     enabled: !!selectedClaimId && !!selectedDocumentId && isDocumentLoaded,
   });
 
-  const { data: session } = useQuery({
+  const { data: documentSession } = useQuery({
     queryKey: ["session", selectedDocumentId],
     queryFn: () => api.getSession(selectedDocumentId),
     enabled: !!selectedDocumentId && isDocumentLoaded,
   });
 
   useEffect(() => {
-    if (session) {
-      setSessionData(session);
+    if (documentSession) {
+      setSessionData(documentSession);
     }
-  }, [session]);
+  }, [documentSession]);
 
   const auditMutation = useMutation({
     mutationFn: api.logAudit,
