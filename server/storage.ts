@@ -1323,7 +1323,8 @@ export class MemStorage implements IStorage {
 
   async deleteClaim(claimId: string, userId?: string): Promise<void> {
     this.claims.delete(claimId);
-    for (const [documentId, document] of this.documents.entries()) {
+    const docEntries = Array.from(this.documents.entries());
+    for (const [documentId, document] of docEntries) {
       if (document.claimId === claimId) {
         this.documents.delete(documentId);
       }
