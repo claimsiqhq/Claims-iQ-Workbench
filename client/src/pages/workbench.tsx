@@ -1119,7 +1119,7 @@ function Workbench() {
     });
   };
 
-  const handleResetIssue = (issue: Issue) => {
+  const handleResetIssue = async (issue: Issue) => {
     const statusUpdated = await updateIssueStatusWithRollback(issue.issueId, "OPEN");
     if (!statusUpdated) {
       return;
