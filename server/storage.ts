@@ -5,15 +5,27 @@ import { supabaseAdmin, isSupabaseConfigured } from "./supabase";
 import type { PaginationParams, PaginatedResult } from "@shared/types/pagination";
 import { DEFAULT_PAGE, DEFAULT_LIMIT } from "@shared/types/pagination";
 
+const normalizeDateOfLoss = (value: unknown): string | undefined => {
+  if (!value) return undefined;
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  return undefined;
+};
+
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   getClaims(userId?: string): Promise<Claim[]>;
   getClaimsPaginated(userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<Claim>>;
-  getClaimById(claimId: string): Promise<Claim | null>;
+  getClaimById(claimId: string, userId?: string): Promise<Claim | null>;
   createClaim(claim: Partial<Claim> & { claimId: string }, userId?: string): Promise<Claim>;
   updateClaim(claimId: string, updates: Partial<Claim>): Promise<Claim | null>;
+  deleteClaim(claimId: string, userId?: string): Promise<void>;
   getDocumentsByClaim(claimId: string): Promise<Document[]>;
   getDocument(documentId: string): Promise<Document | null>;
   createDocument(doc: { documentId: string; claimId: string; title: string; filePath: string; fileSize?: number }, userId?: string): Promise<Document>;
@@ -36,8 +48,8 @@ export interface IStorage {
   updateCorrectionStatus(correctionId: string, status: Correction["status"], appliedBy?: string, method?: string, userId?: string): Promise<void>;
   getAnnotations(documentId: string, userId?: string): Promise<Annotation[]>;
   getAnnotationsPaginated(documentId: string, userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<Annotation>>;
-  createAnnotation(annotation: Annotation, userId?: string): Promise<Annotation>;
-  saveAnnotation(annotation: Annotation, userId?: string): Promise<void>;
+  createAnnotation(annotation: Annotation, documentId: string, userId?: string): Promise<Annotation>;
+  saveAnnotation(annotation: Annotation, documentId: string, userId?: string): Promise<void>;
   updateAnnotation(id: string, updates: Partial<Annotation>, userId?: string): Promise<Annotation>;
   deleteAnnotation(annotationId: string, userId?: string): Promise<void>;
   getCrossDocValidations(claimId: string, userId?: string): Promise<CrossDocumentValidation[]>;
@@ -190,7 +202,7 @@ export class SupabaseStorage implements IStorage {
       policyNumber: row.policy_number,
       status: row.status,
       insuredName: row.insured_name,
-      dateOfLoss: row.date_of_loss,
+      dateOfLoss: normalizeDateOfLoss(row.date_of_loss),
       claimAmount: row.claim_amount,
       adjusterName: row.adjuster_name,
     }));
@@ -198,14 +210,18 @@ export class SupabaseStorage implements IStorage {
     return { data: claims, total: countResult.count || 0 };
   }
 
-  async getClaimById(claimId: string): Promise<Claim | null> {
+  async getClaimById(claimId: string, userId?: string): Promise<Claim | null> {
     if (!supabaseAdmin) return null;
     
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('claims')
       .select('*')
-      .eq('claim_id', claimId)
-      .single();
+      .eq('claim_id', claimId);
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+    
+    const { data, error } = await query.single();
     
     if (error || !data) return null;
     
@@ -215,7 +231,7 @@ export class SupabaseStorage implements IStorage {
       policyNumber: data.policy_number,
       status: data.status,
       insuredName: data.insured_name,
-      dateOfLoss: data.date_of_loss,
+      dateOfLoss: normalizeDateOfLoss(data.date_of_loss),
       claimAmount: data.claim_amount,
       adjusterName: data.adjuster_name,
     };
@@ -251,6 +267,10 @@ export class SupabaseStorage implements IStorage {
       claimNumber: data.claim_number,
       policyNumber: data.policy_number,
       status: data.status,
+      insuredName: data.insured_name,
+      dateOfLoss: normalizeDateOfLoss(data.date_of_loss),
+      claimAmount: data.claim_amount,
+      adjusterName: data.adjuster_name,
     };
   }
 
@@ -280,7 +300,27 @@ export class SupabaseStorage implements IStorage {
       claimNumber: data.claim_number,
       policyNumber: data.policy_number,
       status: data.status,
+      insuredName: data.insured_name,
+      dateOfLoss: normalizeDateOfLoss(data.date_of_loss),
+      claimAmount: data.claim_amount,
+      adjusterName: data.adjuster_name,
     };
+  }
+
+  async deleteClaim(claimId: string, userId?: string): Promise<void> {
+    if (!supabaseAdmin) return;
+    
+    let query = supabaseAdmin
+      .from('claims')
+      .delete()
+      .eq('claim_id', claimId);
+    
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+    
+    const { error } = await query;
+    if (error) throw error;
   }
 
   async getDocumentsByClaim(claimId: string): Promise<Document[]> {
@@ -381,12 +421,15 @@ export class SupabaseStorage implements IStorage {
       // Ensure rect is properly parsed from JSONB
       // Supabase returns JSONB as an object, but sometimes it might be a string
       let rect = row.rect;
+      if (rect === null) {
+        rect = undefined;
+      }
       if (typeof rect === 'string') {
         try {
           rect = JSON.parse(rect);
         } catch (e) {
           console.error(`Failed to parse rect for issue ${row.issue_id}:`, e);
-          rect = null;
+          rect = undefined;
         }
       }
       
@@ -394,7 +437,7 @@ export class SupabaseStorage implements IStorage {
       if (rect && (typeof rect.left !== 'number' || typeof rect.top !== 'number' || 
           typeof rect.width !== 'number' || typeof rect.height !== 'number')) {
         console.warn(`Issue ${row.issue_id} has invalid rect structure:`, rect);
-        rect = null;
+        rect = undefined;
       }
       
       return {
@@ -437,30 +480,30 @@ export class SupabaseStorage implements IStorage {
     if (!supabaseAdmin) return;
     
     const isRealUser = userId && userId !== 'system' && userId !== 'anonymous';
+
+    const payload = issueBundle.issues.map(issue => ({
+      issue_id: issue.issueId,
+      document_id: documentId,
+      type: issue.type,
+      severity: issue.severity,
+      confidence: issue.confidence,
+      page_index: issue.pageIndex,
+      rect: issue.rect,
+      found_value: issue.foundValue,
+      expected_value: issue.expectedValue,
+      form_field_name: issue.formFieldName,
+      label: issue.label,
+      suggested_fix: issue.suggestedFix,
+      status: issue.status || 'OPEN',
+      user_id: isRealUser ? userId : null,
+    }));
+
+    const { error } = await supabaseAdmin
+      .from('issues')
+      .upsert(payload, { onConflict: 'issue_id' });
     
-    for (const issue of issueBundle.issues) {
-      const { error } = await supabaseAdmin
-        .from('issues')
-        .upsert({
-          issue_id: issue.issueId,
-          document_id: documentId,
-          type: issue.type,
-          severity: issue.severity,
-          confidence: issue.confidence,
-          page_index: issue.pageIndex,
-          rect: issue.rect,
-          found_value: issue.foundValue,
-          expected_value: issue.expectedValue,
-          form_field_name: issue.formFieldName,
-          label: issue.label,
-          suggested_fix: issue.suggestedFix,
-          status: issue.status || 'OPEN',
-          user_id: isRealUser ? userId : null,
-        }, { onConflict: 'issue_id' });
-      
-      if (error) {
-        console.error('Error saving issue:', error);
-      }
+    if (error) {
+      console.error('Error saving issues:', error);
     }
   }
 
@@ -713,6 +756,9 @@ export class SupabaseStorage implements IStorage {
       const doc = await this.getDocument(correction.evidence.source_document);
       claimId = doc?.claimId || "";
     }
+    if (!claimId) {
+      throw new Error("Missing claim_id for correction");
+    }
     
     const documentId = correction.document_id || correction.evidence.source_document || "";
     
@@ -763,9 +809,19 @@ export class SupabaseStorage implements IStorage {
   async saveCorrection(correction: Correction, userId?: string): Promise<void> {
     if (!supabaseAdmin) return;
     
+    const documentId = correction.document_id || correction.evidence.source_document || "";
+    let claimId = correction.claim_id || "";
+    if (!claimId && documentId) {
+      const doc = await this.getDocument(documentId);
+      claimId = doc?.claimId || "";
+    }
+    if (!claimId) {
+      throw new Error("Missing claim_id for correction");
+    }
     const { error } = await supabaseAdmin.from('corrections').upsert({
       id: correction.id,
-      document_id: correction.evidence.source_document || "",
+      document_id: documentId,
+      claim_id: claimId,
       type: correction.type,
       severity: correction.severity,
       location: correction.location,
@@ -881,12 +937,12 @@ export class SupabaseStorage implements IStorage {
     return { data: annotations, total: countResult.count || 0 };
   }
 
-  async createAnnotation(annotation: Annotation, userId?: string): Promise<Annotation> {
+  async createAnnotation(annotation: Annotation, documentId: string, userId?: string): Promise<Annotation> {
     if (!supabaseAdmin) throw new Error('Supabase not configured');
     
     const { data, error } = await supabaseAdmin.from('annotations').insert({
       id: annotation.id,
-      document_id: "", // Will be set by caller
+      document_id: documentId,
       type: annotation.type,
       location: annotation.location,
       text: annotation.text,
@@ -911,12 +967,12 @@ export class SupabaseStorage implements IStorage {
     };
   }
 
-  async saveAnnotation(annotation: Annotation, userId?: string): Promise<void> {
+  async saveAnnotation(annotation: Annotation, documentId: string, userId?: string): Promise<void> {
     if (!supabaseAdmin) return;
     
     const { error } = await supabaseAdmin.from('annotations').upsert({
       id: annotation.id,
-      document_id: "", // Need document_id from context
+      document_id: documentId,
       type: annotation.type,
       location: annotation.location,
       text: annotation.text,
@@ -999,6 +1055,7 @@ export class SupabaseStorage implements IStorage {
     
     const validations = (dataResult.data || []).map(row => ({
       id: row.id,
+      claim_id: row.claim_id,
       field: row.field as CrossDocumentValidation["field"],
       severity: row.severity as CrossDocumentValidation["severity"],
       documents: row.documents,
@@ -1032,6 +1089,7 @@ export class SupabaseStorage implements IStorage {
     
     return (data || []).map(row => ({
       id: row.id,
+      claim_id: row.claim_id,
       field: row.field as CrossDocumentValidation["field"],
       severity: row.severity as CrossDocumentValidation["severity"],
       documents: row.documents,
@@ -1050,7 +1108,7 @@ export class SupabaseStorage implements IStorage {
     
     const { data, error } = await supabaseAdmin.from('cross_document_validations').insert({
       id: validation.id,
-      claim_id: "", // Will be set by caller
+      claim_id: validation.claim_id,
       field: validation.field,
       severity: validation.severity,
       documents: validation.documents,
@@ -1068,6 +1126,7 @@ export class SupabaseStorage implements IStorage {
     
     return {
       id: data.id,
+      claim_id: data.claim_id,
       field: data.field as CrossDocumentValidation["field"],
       severity: data.severity as CrossDocumentValidation["severity"],
       documents: data.documents,
@@ -1086,7 +1145,7 @@ export class SupabaseStorage implements IStorage {
     
     const { error } = await supabaseAdmin.from('cross_document_validations').upsert({
       id: validation.id,
-      claim_id: "", // Need claim_id from context
+      claim_id: validation.claim_id,
       field: validation.field,
       severity: validation.severity,
       documents: validation.documents,
@@ -1164,6 +1223,7 @@ export class SupabaseStorage implements IStorage {
       for (const correction of doc.corrections) {
         await this.saveCorrection({
           ...correction,
+          claim_id: payload.claim.claim_id,
           evidence: {
             ...correction.evidence,
             source_document: doc.document_id,
@@ -1176,7 +1236,7 @@ export class SupabaseStorage implements IStorage {
         await this.saveAnnotation({
           ...annotation,
           created_by: userId || annotation.created_by,
-        }, userId);
+        }, doc.document_id, userId);
       }
     }
     
@@ -1184,6 +1244,7 @@ export class SupabaseStorage implements IStorage {
     for (const validation of payload.cross_document_validations) {
       await this.saveCrossDocumentValidation({
         ...validation,
+        claim_id: payload.claim.claim_id,
       }, userId);
     }
   }
@@ -1232,7 +1293,7 @@ export class MemStorage implements IStorage {
     return { data: allClaims.slice(offset, offset + limit), total: allClaims.length };
   }
 
-  async getClaimById(claimId: string): Promise<Claim | null> {
+  async getClaimById(claimId: string, userId?: string): Promise<Claim | null> {
     return this.claims.get(claimId) || null;
   }
 
@@ -1242,6 +1303,10 @@ export class MemStorage implements IStorage {
       claimNumber: claim.claimNumber || claim.claimId,
       policyNumber: claim.policyNumber,
       status: claim.status || 'open',
+      insuredName: claim.insuredName,
+      dateOfLoss: claim.dateOfLoss,
+      claimAmount: claim.claimAmount,
+      adjusterName: claim.adjusterName,
     };
     this.claims.set(claim.claimId, newClaim);
     return newClaim;
@@ -1254,6 +1319,15 @@ export class MemStorage implements IStorage {
     const updated = { ...claim, ...updates };
     this.claims.set(claimId, updated);
     return updated;
+  }
+
+  async deleteClaim(claimId: string, userId?: string): Promise<void> {
+    this.claims.delete(claimId);
+    for (const [documentId, document] of this.documents.entries()) {
+      if (document.claimId === claimId) {
+        this.documents.delete(documentId);
+      }
+    }
   }
 
   async getDocumentsByClaim(claimId: string): Promise<Document[]> {
@@ -1341,7 +1415,7 @@ export class MemStorage implements IStorage {
 
   // Canonical schema methods (in-memory implementations)
   private corrections: Map<string, Correction> = new Map();
-  private annotations: Map<string, Annotation> = new Map();
+  private annotations: Map<string, Annotation & { documentId: string }> = new Map();
   private crossDocValidations: Map<string, CrossDocumentValidation> = new Map();
 
   async getCorrections(documentId: string, userId?: string): Promise<Correction[]> {
@@ -1360,7 +1434,7 @@ export class MemStorage implements IStorage {
 
   async getCorrectionsByClaimId(claimId: string, userId?: string): Promise<Correction[]> {
     return Array.from(this.corrections.values()).filter(
-      c => c.evidence.source_document && this.documents.get(c.evidence.source_document)?.claimId === claimId
+      c => c.claim_id === claimId
     );
   }
 
@@ -1395,31 +1469,36 @@ export class MemStorage implements IStorage {
   }
 
   async getAnnotations(documentId: string, userId?: string): Promise<Annotation[]> {
-    return Array.from(this.annotations.values()).filter(
-      a => a.location.bbox?.pageIndex !== undefined // Simplified check
-    );
+    return Array.from(this.annotations.values())
+      .filter(annotation => annotation.documentId === documentId)
+      .map(({ documentId: _documentId, ...annotation }) => annotation);
   }
 
   async getAnnotationsPaginated(documentId: string, userId?: string, pagination?: PaginationParams): Promise<PaginatedResult<Annotation>> {
-    const all = Array.from(this.annotations.values());
+    const all = Array.from(this.annotations.values())
+      .filter(annotation => annotation.documentId === documentId)
+      .map(({ documentId: _documentId, ...annotation }) => annotation);
     const page = pagination?.page || DEFAULT_PAGE;
     const limit = pagination?.limit || DEFAULT_LIMIT;
     const offset = (page - 1) * limit;
     return { data: all.slice(offset, offset + limit), total: all.length };
   }
 
-  async createAnnotation(annotation: Annotation, userId?: string): Promise<Annotation> {
-    const created = {
+  async createAnnotation(annotation: Annotation, documentId: string, userId?: string): Promise<Annotation> {
+    const created: Annotation & { documentId: string } = {
       ...annotation,
+      documentId,
       created_by: userId || annotation.created_by,
     };
     this.annotations.set(annotation.id, created);
-    return created;
+    const { documentId: _documentId, ...result } = created;
+    return result;
   }
 
-  async saveAnnotation(annotation: Annotation, userId?: string): Promise<void> {
+  async saveAnnotation(annotation: Annotation, documentId: string, userId?: string): Promise<void> {
     this.annotations.set(annotation.id, {
       ...annotation,
+      documentId,
       created_by: userId || annotation.created_by,
     });
   }
@@ -1454,10 +1533,7 @@ export class MemStorage implements IStorage {
 
   async getCrossDocumentValidations(claimId: string, userId?: string): Promise<CrossDocumentValidation[]> {
     return Array.from(this.crossDocValidations.values()).filter(
-      v => v.documents.some(d => {
-        const doc = this.documents.get(d.document_id);
-        return doc?.claimId === claimId;
-      })
+      validation => validation.claim_id === claimId
     );
   }
 
@@ -1513,6 +1589,7 @@ export class MemStorage implements IStorage {
       for (const correction of doc.corrections) {
         await this.saveCorrection({
           ...correction,
+          claim_id: payload.claim.claim_id,
           evidence: {
             ...correction.evidence,
             source_document: doc.document_id,
@@ -1520,11 +1597,14 @@ export class MemStorage implements IStorage {
         }, userId);
       }
       for (const annotation of doc.annotations) {
-        await this.saveAnnotation(annotation, userId);
+        await this.saveAnnotation(annotation, doc.document_id, userId);
       }
     }
     for (const validation of payload.cross_document_validations) {
-      await this.saveCrossDocumentValidation(validation, userId);
+      await this.saveCrossDocumentValidation({
+        ...validation,
+        claim_id: payload.claim.claim_id,
+      }, userId);
     }
   }
 }

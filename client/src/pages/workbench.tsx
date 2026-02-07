@@ -77,6 +77,7 @@ function Workbench() {
     queryClient,
     setLocation,
     user,
+    session,
     signOut,
     isAuthConfigured,
     authLoading,
@@ -236,8 +237,10 @@ function Workbench() {
       return undefined;
     }
     const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
-    return `${baseUrl}/files/${selectedDocumentId}.pdf`;
-  }, [isDocumentLoaded, selectedDocumentId, sessionData]);
+    const token = session?.access_token;
+    const tokenSuffix = token ? `?token=${encodeURIComponent(token)}` : "";
+    return `${baseUrl}/files/${selectedDocumentId}.pdf${tokenSuffix}`;
+  }, [isDocumentLoaded, selectedDocumentId, sessionData, session?.access_token]);
 
   const instantConfig = useMemo(() => {
     if (!isDocumentLoaded || !selectedDocumentId || !sessionData) return undefined;

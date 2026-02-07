@@ -62,6 +62,7 @@ export class CrossDocumentValidator {
         // Inconsistency detected
         validations.push({
           id: randomUUID(),
+          claim_id: claimId,
           field,
           severity: this.getSeverityForField(field),
           documents: values.map((v) => ({

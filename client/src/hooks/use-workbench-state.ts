@@ -14,7 +14,7 @@ export function useWorkbenchState() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
-  const { user, signOut, isConfigured: isAuthConfigured, loading: authLoading } = useAuth();
+  const { user, session, signOut, isConfigured: isAuthConfigured, loading: authLoading } = useAuth();
   
   useEffect(() => {
     if (!authLoading && isAuthConfigured && !user) {
@@ -84,6 +84,7 @@ export function useWorkbenchState() {
     queryClient,
     setLocation,
     user,
+    session,
     signOut,
     isAuthConfigured,
     authLoading,

@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { supabaseAdmin, isSupabaseConfigured } from "./supabase";
 import { AuditLogSchema, SessionDataSchema, IssueBundleSchema, type IssueBundle } from "@shared/schema";
-import { DocumentCorrectionPayloadSchema, CorrectionSchema, AnnotationSchema, CrossDocumentValidationSchema } from "@shared/schemas";
+import { DocumentCorrectionPayloadSchema, CorrectionSchema, AnnotationSchema, CrossDocumentValidationSchema, LocationSchema } from "@shared/schemas";
 import { FieldExtractor } from "./services/field-extractor";
 import { CrossDocumentValidator } from "./services/cross-document-validator";
 import { authenticateRequest, optionalAuth } from "./middleware/auth";
@@ -32,6 +32,7 @@ import path from "path";
 import fs from "fs";
 import { parsePdfFile, extractPdfText, type ExtractedClaimInfo } from "./pdf-parser";
 import crypto from "crypto";
+import { z } from "zod";
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 const STORAGE_DIR = path.resolve(process.cwd(), "storage");
@@ -40,6 +41,30 @@ const AUDIT_LOG_FILE = path.join(DATA_DIR, "audit.log");
 
 const auditMemory: any[] = [];
 const MAX_AUDIT_MEMORY = 200;
+const AnnotationUpdateSchema = z.object({
+  text: z.string().optional(),
+  color: z.string().optional(),
+  location: LocationSchema.optional(),
+}).strict();
+const ClaimCreateSchema = z.object({
+  claimId: z.string(),
+  claimNumber: z.string().optional(),
+  policyNumber: z.string().optional(),
+  status: z.string().optional(),
+  insuredName: z.string().optional(),
+  dateOfLoss: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+  claimAmount: z.string().optional(),
+  adjusterName: z.string().optional(),
+}).strict();
+const ClaimUpdateSchema = z.object({
+  claimNumber: z.string().optional(),
+  policyNumber: z.string().optional(),
+  status: z.string().optional(),
+  insuredName: z.string().optional(),
+  dateOfLoss: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+  claimAmount: z.string().optional(),
+  adjusterName: z.string().optional(),
+}).strict();
 
 /**
  * Validate PDF file by checking magic bytes
@@ -386,8 +411,8 @@ export async function registerRoutes(
   // Apply rate limiting to all API routes
   app.use("/api", apiLimiter);
 
-  // Metrics endpoint - no auth required
-  app.get("/api/metrics", (req, res) => {
+  // Metrics endpoint - require auth
+  app.get("/api/metrics", authenticateRequest, (req, res) => {
     sendSuccess(res, performanceMonitor.getMetrics());
   });
 
@@ -529,35 +554,125 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/claims/:claimId/documents", async (req, res) => {
+  app.post("/api/claims", authenticateRequest, async (req, res) => {
+    try {
+      const payload = ClaimCreateSchema.parse(req.body);
+      const sanitizedClaimId = sanitizeId(payload.claimId);
+      if (!sanitizedClaimId) {
+        return sendError(res, 400, "INVALID_INPUT", "Invalid claim ID");
+      }
+
+      const exists = await storage.claimExists(sanitizedClaimId);
+      if (exists) {
+        return sendError(res, 409, "ALREADY_EXISTS", "Claim already exists");
+      }
+
+      const created = await storage.createClaim({
+        claimId: sanitizedClaimId,
+        claimNumber: payload.claimNumber,
+        policyNumber: payload.policyNumber,
+        status: payload.status,
+        insuredName: payload.insuredName,
+        dateOfLoss: payload.dateOfLoss,
+        claimAmount: payload.claimAmount,
+        adjusterName: payload.adjusterName,
+      }, req.userId);
+
+      sendSuccess(res, created, 201);
+    } catch (error) {
+      console.error("Error creating claim:", error);
+      if (error instanceof Error && error.name === "ZodError") {
+        return sendError(res, 400, "VALIDATION_ERROR", "Invalid claim data", error);
+      }
+      sendError(res, 500, "CREATE_ERROR", "Failed to create claim");
+    }
+  });
+
+  app.put("/api/claims/:claimId", authenticateRequest, async (req, res) => {
+    try {
+      const sanitizedClaimId = sanitizeId(req.params.claimId);
+      if (!sanitizedClaimId) {
+        return sendError(res, 400, "INVALID_INPUT", "Invalid claim ID");
+      }
+
+      const updates = ClaimUpdateSchema.parse(req.body);
+      const claim = await storage.getClaimById(sanitizedClaimId, req.userId);
+      if (!claim && isSupabaseConfigured()) {
+        return sendError(res, 404, "NOT_FOUND", "Claim not found");
+      }
+
+      const updated = await storage.updateClaim(sanitizedClaimId, updates);
+      if (!updated) {
+        return sendError(res, 404, "NOT_FOUND", "Claim not found");
+      }
+
+      cache.deletePattern(`claims:`);
+      sendSuccess(res, updated);
+    } catch (error) {
+      console.error("Error updating claim:", error);
+      if (error instanceof Error && error.name === "ZodError") {
+        return sendError(res, 400, "VALIDATION_ERROR", "Invalid claim update", error);
+      }
+      sendError(res, 500, "UPDATE_ERROR", "Failed to update claim");
+    }
+  });
+
+  app.delete("/api/claims/:claimId", authenticateRequest, async (req, res) => {
+    try {
+      const sanitizedClaimId = sanitizeId(req.params.claimId);
+      if (!sanitizedClaimId) {
+        return sendError(res, 400, "INVALID_INPUT", "Invalid claim ID");
+      }
+
+      const claim = await storage.getClaimById(sanitizedClaimId, req.userId);
+      if (!claim && isSupabaseConfigured()) {
+        return sendError(res, 404, "NOT_FOUND", "Claim not found");
+      }
+
+      await storage.deleteClaim(sanitizedClaimId, req.userId);
+      cache.deletePattern(`claims:`);
+      cache.deletePattern(`documents:`);
+      sendSuccess(res, { success: true });
+    } catch (error) {
+      console.error("Error deleting claim:", error);
+      sendError(res, 500, "DELETE_ERROR", "Failed to delete claim");
+    }
+  });
+
+  app.get("/api/claims/:claimId/documents", authenticateRequest, async (req, res) => {
     try {
       const sanitizedClaimId = sanitizeId(req.params.claimId);
       
       if (!sanitizedClaimId) {
-        return res.status(400).json({ error: "Invalid claim ID" });
+        return sendError(res, 400, "INVALID_INPUT", "Invalid claim ID");
+      }
+
+      const claim = await storage.getClaimById(sanitizedClaimId, req.userId);
+      if (!claim && isSupabaseConfigured()) {
+        return sendError(res, 404, "NOT_FOUND", "Claim not found");
       }
       
       if (isSupabaseConfigured()) {
         const documents = await storage.getDocumentsByClaim(sanitizedClaimId);
-        return res.json(documents);
+        return sendSuccess(res, documents);
       }
       
       const index = readIndex();
-      const claim = index.claims.find((c) => c.claimId === sanitizedClaimId);
+      const localClaim = index.claims.find((c) => c.claimId === sanitizedClaimId);
       
-      if (!claim) {
-        return res.json([]);
+      if (!localClaim) {
+        return sendSuccess(res, []);
       }
 
-      const documents = claim.documents.map((doc: any) => ({
+      const documents = localClaim.documents.map((doc: any) => ({
         documentId: doc.documentId,
         name: doc.title,
         claimId: sanitizedClaimId,
       }));
 
-      res.json(documents);
+      sendSuccess(res, documents);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch documents" });
+      sendError(res, 500, "FETCH_ERROR", "Failed to fetch documents");
     }
   });
 
@@ -577,6 +692,14 @@ export async function registerRoutes(
       const pdfPath = path.join(STORAGE_DIR, `${documentId}.pdf`);
       
       fs.renameSync(pdfFile.path, pdfPath);
+      if (!validatePdfFile(pdfPath)) {
+        fs.unlinkSync(pdfPath);
+        return res.status(400).json({ error: "Invalid PDF file" });
+      }
+      if (!validatePdfFile(pdfPath)) {
+        fs.unlinkSync(pdfPath);
+        return res.status(400).json({ error: "Invalid PDF file" });
+      }
 
       let extractedInfo: ExtractedClaimInfo = {};
       let claimId: string;
@@ -748,6 +871,14 @@ export async function registerRoutes(
       if (!sanitizedClaimId) {
         return res.status(400).json({ error: "Invalid claim ID format" });
       }
+
+      if (isSupabaseConfigured()) {
+        const claim = await storage.getClaimById(sanitizedClaimId, req.userId);
+        const exists = await storage.claimExists(sanitizedClaimId);
+        if (!claim && exists) {
+          return sendError(res, 403, "FORBIDDEN", "Claim access denied");
+        }
+      }
       
       const files = req.files as { [fieldname: string]: Express.Multer.File[] };
 
@@ -839,11 +970,23 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/files/:documentId.pdf", async (req, res) => {
+  app.get("/files/:documentId.pdf", authenticateRequest, async (req, res) => {
     const documentId = sanitizeId(req.params.documentId);
     
     if (!documentId) {
       return res.status(400).json({ error: "Invalid document ID" });
+    }
+
+    const document = await storage.getDocument(documentId);
+    if (!document) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+
+    if (isSupabaseConfigured()) {
+      const claim = await storage.getClaimById(document.claimId, req.userId);
+      if (!claim) {
+        return res.status(403).json({ error: "Access denied" });
+      }
     }
     
     const exists = await documentExistsCheck(documentId);
@@ -1134,19 +1277,11 @@ export async function registerRoutes(
         location: annotationData.location,
       };
       
-      const created = await storage.createAnnotation(annotation, req.userId);
-      
-      // Update document_id after creation
-      if (created && supabaseAdmin) {
-        await supabaseAdmin
-          .from('annotations')
-          .update({ document_id: sanitizedDocId })
-          .eq('id', created.id);
-      }
+      const created = await storage.createAnnotation(annotation, sanitizedDocId, req.userId);
       
       cache.deletePattern(`annotations:${sanitizedDocId}`);
       
-      sendSuccess(res, { ...created, document_id: sanitizedDocId }, 201);
+      sendSuccess(res, created, 201);
     } catch (error) {
       console.error("Error creating annotation:", error);
       if (error instanceof Error && error.name === 'ZodError') {
@@ -1207,7 +1342,7 @@ export async function registerRoutes(
         return sendError(res, 400, "INVALID_INPUT", "Invalid annotation ID");
       }
 
-      const updates = req.body;
+      const updates = AnnotationUpdateSchema.parse(req.body);
       const updated = await storage.updateAnnotation(sanitizedId, updates, req.userId);
       
       cache.deletePattern(`annotations:`);
@@ -1215,6 +1350,9 @@ export async function registerRoutes(
       sendSuccess(res, updated);
     } catch (error) {
       console.error("Error updating annotation:", error);
+      if (error instanceof Error && error.name === "ZodError") {
+        return sendError(res, 400, "VALIDATION_ERROR", "Invalid annotation update", error);
+      }
       sendError(res, 500, "UPDATE_ERROR", "Failed to update annotation");
     }
   });
@@ -1227,7 +1365,7 @@ export async function registerRoutes(
       }
 
       // Verify claim belongs to user
-      const claim = await storage.getClaimById(sanitizedClaimId);
+      const claim = await storage.getClaimById(sanitizedClaimId, req.userId);
       if (!claim) {
         return sendError(res, 404, "NOT_FOUND", "Claim not found");
       }
@@ -1253,7 +1391,7 @@ export async function registerRoutes(
       }
 
       // Verify claim belongs to user
-      const claim = await storage.getClaimById(sanitizedClaimId);
+      const claim = await storage.getClaimById(sanitizedClaimId, req.userId);
       if (!claim) {
         return sendError(res, 404, "NOT_FOUND", "Claim not found");
       }
@@ -1279,12 +1417,15 @@ export async function registerRoutes(
       }
 
       // Verify claim belongs to user
-      const claim = await storage.getClaimById(sanitizedClaimId);
+      const claim = await storage.getClaimById(sanitizedClaimId, req.userId);
       if (!claim) {
         return sendError(res, 404, "NOT_FOUND", "Claim not found");
       }
 
-      const validation = CrossDocumentValidationSchema.parse(req.body);
+      const validation = CrossDocumentValidationSchema.parse({
+        ...req.body,
+        claim_id: sanitizedClaimId,
+      });
       await storage.saveCrossDocumentValidation(validation, req.userId);
       sendSuccess(res, { success: true, validation }, 201);
     } catch (error) {
@@ -1361,7 +1502,20 @@ export async function registerRoutes(
 
   app.post("/api/correction-payload", authenticateRequest, async (req, res) => {
     try {
-      const payload = DocumentCorrectionPayloadSchema.parse(req.body);
+      const payload = DocumentCorrectionPayloadSchema.parse({
+        ...req.body,
+        documents: (req.body?.documents || []).map((doc: any) => ({
+          ...doc,
+          corrections: (doc?.corrections || []).map((correction: any) => ({
+            ...correction,
+            claim_id: req.body?.claim?.claim_id || correction.claim_id,
+          })),
+        })),
+        cross_document_validations: (req.body?.cross_document_validations || []).map((validation: any) => ({
+          ...validation,
+          claim_id: req.body?.claim?.claim_id || validation.claim_id,
+        })),
+      });
       await storage.saveCorrectionPayload(payload, req.userId);
       sendSuccess(res, { success: true, payload }, 201);
     } catch (error) {
@@ -1381,7 +1535,7 @@ export async function registerRoutes(
       }
 
       // Verify claim belongs to user
-      const claim = await storage.getClaimById(sanitizedClaimId);
+      const claim = await storage.getClaimById(sanitizedClaimId, req.userId);
       if (!claim) {
         return sendError(res, 404, "NOT_FOUND", "Claim not found");
       }
@@ -1472,7 +1626,7 @@ export async function registerRoutes(
     
     // Use the validate endpoint handler
     try {
-      const claim = await storage.getClaimById(sanitizedClaimId);
+      const claim = await storage.getClaimById(sanitizedClaimId, req.userId);
       if (!claim) {
         return sendError(res, 404, "NOT_FOUND", "Claim not found");
       }

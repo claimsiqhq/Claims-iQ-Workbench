@@ -239,6 +239,7 @@ export function adaptCorrectionPayload(payload: any): CorrectionPayloadResult {
 
     return {
       id: uuidv4(),
+      claim_id: claimId,
       field: xval.field_name as any,
       severity: xval.severity,
       documents: docs,

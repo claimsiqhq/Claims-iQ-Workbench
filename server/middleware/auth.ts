@@ -25,18 +25,21 @@ export async function authenticateRequest(
   res: Response,
   next: NextFunction
 ): Promise<void> {
-  // Skip auth for health check and public file endpoints
+  // Skip auth for health check endpoints
   if (
     req.path === "/api/health" ||
-    req.path.startsWith("/files/") ||
     (req.path === "/api/session" && req.method === "GET")
   ) {
     return next();
   }
 
   const authHeader = req.headers.authorization;
+  const tokenFromQuery = typeof req.query.token === "string" ? req.query.token : undefined;
+  const token = authHeader?.startsWith("Bearer ")
+    ? authHeader.substring(7)
+    : tokenFromQuery;
 
-  if (!authHeader?.startsWith("Bearer ")) {
+  if (!token) {
     // If no auth header and Supabase is not configured, allow through (dev mode)
     if (!supabaseAdmin) {
       req.userId = "system";
@@ -51,8 +54,6 @@ export async function authenticateRequest(
       },
     });
   }
-
-  const token = authHeader.substring(7);
 
   if (!supabaseAdmin) {
     // Fallback for development when Supabase is not configured

@@ -10,7 +10,7 @@ const mockStorage = {
       created_at: new Date().toISOString(),
     },
   ]),
-  createAnnotation: vi.fn().mockImplementation((annotation) => {
+  createAnnotation: vi.fn().mockImplementation((annotation, documentId) => {
     return Promise.resolve({ ...annotation, id: "new-ann-id" });
   }),
   deleteAnnotation: vi.fn().mockResolvedValue(undefined),
@@ -42,7 +42,7 @@ describe("Annotations API", () => {
         created_at: new Date().toISOString(),
       };
 
-      const created = await mockStorage.createAnnotation(newAnnotation);
+      const created = await mockStorage.createAnnotation(newAnnotation, "doc-1");
       expect(created.id).toBe("new-ann-id");
     });
   });

@@ -47,7 +47,9 @@ async function authenticatedFetch(
     headers.set("Authorization", `Bearer ${token}`);
   }
   
-  headers.set("Content-Type", "application/json");
+  if (!(options.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
   
   const response = await fetch(url, {
     ...options,
@@ -165,12 +167,13 @@ export const api = {
       formData.append("issues", JSON.stringify(issues));
     }
     
-    const res = await fetch(`${API_BASE}/api/claims/${claimId}/documents`, {
+    const res = await authenticatedFetch(`${API_BASE}/api/claims/${claimId}/documents`, {
       method: "POST",
       body: formData,
     });
     if (!res.ok) throw new Error("Failed to upload document");
-    return res.json();
+    const data = await res.json();
+    return data.data || data;
   },
 
   async uploadAndParseDocument(
@@ -201,7 +204,7 @@ export const api = {
           onProgress?.(100, "Complete!");
           try {
             const response = JSON.parse(xhr.responseText);
-            resolve(response);
+            resolve(response.data || response);
           } catch {
             reject(new Error("Invalid response from server"));
           }
