@@ -69,6 +69,7 @@ import { Switch } from "@/components/ui/switch";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import type { ImperativePanelHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
 
 function Workbench() {
   const state = useWorkbenchState();
@@ -145,8 +146,31 @@ function Workbench() {
   } = state;
 
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const [viewerAuthToken, setViewerAuthToken] = useState<string | null>(null);
 
   const issuesPanelRef = useReactRef<ImperativePanelHandle>(null);
+
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (active) {
+        setViewerAuthToken(session?.access_token || null);
+      }
+    });
+    
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (active) {
+        setViewerAuthToken(session?.access_token || null);
+      }
+    });
+    
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const toggleIssuesPanel = useCallback(() => {
     const panel = issuesPanelRef.current;
@@ -257,7 +281,25 @@ function Workbench() {
   const { instance, isLoading: viewerLoading, containerRef, NutrientViewer } = useNutrientViewer({
     documentUrl: documentUrl,
     instant: instantConfig,
+    requestHeaders: viewerAuthToken ? { Authorization: `Bearer ${viewerAuthToken}` } : undefined,
   });
+
+  const updateIssueStatusWithRollback = useCallback(async (issueId: string, nextStatus: IssueStatus) => {
+    const previousStatus = issueStatuses.get(issueId) || "OPEN";
+    setIssueStatuses((prev) => new Map(prev).set(issueId, nextStatus));
+    try {
+      await api.updateIssueStatus(issueId, nextStatus);
+      return true;
+    } catch (error) {
+      setIssueStatuses((prev) => new Map(prev).set(issueId, previousStatus));
+      toast({
+        title: "Status Update Failed",
+        description: error instanceof Error ? error.message : "Failed to update issue status",
+        variant: "destructive",
+      });
+      return false;
+    }
+  }, [issueStatuses, toast]);
 
   // Initialize adapter when viewer instance is ready
   useEffect(() => {
@@ -973,12 +1015,15 @@ function Workbench() {
 
       if (correctionApplied) {
         // Update status and log audit
-        setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "APPLIED"));
         setSelectedIssueId(null);
 
-        await Promise.all([
-          api.updateIssueStatus(issue.issueId, "APPLIED").catch(() => {}),
-          auditMutation.mutateAsync({
+        const statusUpdated = await updateIssueStatusWithRollback(issue.issueId, "APPLIED");
+        if (!statusUpdated) {
+          return;
+        }
+
+        try {
+          await auditMutation.mutateAsync({
             claimId: selectedClaimId,
             documentId: selectedDocumentId,
             issueId: issue.issueId,
@@ -988,8 +1033,14 @@ function Workbench() {
             after: issue.expectedValue,
             user: username,
             ts: new Date().toISOString(),
-          }),
-        ]);
+          });
+        } catch (error) {
+          toast({
+            title: "Audit Log Failed",
+            description: error instanceof Error ? error.message : "Failed to log audit entry",
+            variant: "destructive",
+          });
+        }
 
         toast({
           title: "Correction Applied",
@@ -1020,8 +1071,10 @@ function Workbench() {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
     
-    setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "MANUAL"));
-    api.updateIssueStatus(issue.issueId, "MANUAL").catch(() => {});
+    const statusUpdated = await updateIssueStatusWithRollback(issue.issueId, "MANUAL");
+    if (!statusUpdated) {
+      return;
+    }
     
     auditMutation.mutate({
       claimId: selectedClaimId,
@@ -1045,9 +1098,11 @@ function Workbench() {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
     
-    setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "REJECTED"));
     setSelectedIssueId(null);
-    api.updateIssueStatus(issue.issueId, "REJECTED").catch(() => {});
+    const statusUpdated = await updateIssueStatusWithRollback(issue.issueId, "REJECTED");
+    if (!statusUpdated) {
+      return;
+    }
     
     auditMutation.mutate({
       claimId: selectedClaimId,
@@ -1065,8 +1120,10 @@ function Workbench() {
   };
 
   const handleResetIssue = (issue: Issue) => {
-    setIssueStatuses((prev) => new Map(prev).set(issue.issueId, "OPEN"));
-    api.updateIssueStatus(issue.issueId, "OPEN").catch(() => {});
+    const statusUpdated = await updateIssueStatusWithRollback(issue.issueId, "OPEN");
+    if (!statusUpdated) {
+      return;
+    }
 
     auditMutation.mutate({
       claimId: selectedClaimId,

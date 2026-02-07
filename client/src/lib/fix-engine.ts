@@ -156,19 +156,28 @@ export class FixEngine {
  * Migration helper: Convert old Issue schema to new Correction schema
  */
 export function migrateIssueToCorrection(issue: Issue): Correction {
+  const location = issue.rect
+    ? {
+        bbox: {
+          pageIndex: issue.pageIndex,
+          left: issue.rect.left,
+          top: issue.rect.top,
+          width: issue.rect.width,
+          height: issue.rect.height,
+        },
+      }
+    : {
+        search_text: {
+          text: issue.searchText || issue.foundValue || issue.expectedValue || "unknown",
+          occurrence: 1,
+        },
+      };
+  
   return {
     id: issue.issueId,
     type: mapIssueType(issue.type),
     severity: mapSeverity(issue.severity),
-    location: {
-      bbox: {
-        pageIndex: issue.pageIndex,
-        left: issue.rect.left,
-        top: issue.rect.top,
-        width: issue.rect.width,
-        height: issue.rect.height,
-      },
-    },
+    location,
     found_value: issue.foundValue || "",
     expected_value: issue.expectedValue || "",
     confidence: issue.confidence,

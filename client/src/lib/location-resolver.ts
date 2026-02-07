@@ -73,7 +73,7 @@ export class LocationResolver {
 
     try {
       // Use PDF processor's search capability
-      let results: any[] = [];
+      let results: any = [];
 
       if (this.pdfInstance?.search) {
         results = await this.pdfInstance.search(searchText.text);
@@ -84,17 +84,18 @@ export class LocationResolver {
         return null;
       }
 
-      if (results.length === 0) {
+      const normalizedResults = this.normalizeSearchResults(results);
+      if (normalizedResults.length === 0) {
         return null;
       }
 
       // Get the specified occurrence (default to first)
       const targetIndex = (searchText.occurrence || 1) - 1;
-      if (targetIndex >= results.length) {
+      if (targetIndex >= normalizedResults.length) {
         return null;
       }
 
-      const result = results[targetIndex];
+      const result = normalizedResults[targetIndex];
 
       // Verify context if provided
       if (searchText.context_before || searchText.context_after) {
@@ -175,5 +176,21 @@ export class LocationResolver {
       // If verification fails, assume valid (fail open)
       return true;
     }
+  }
+
+  private normalizeSearchResults(results: any): any[] {
+    if (!results) return [];
+    if (Array.isArray(results)) return results;
+    if (typeof results.toArray === "function") {
+      return results.toArray();
+    }
+    if (typeof results.size === "number" && typeof results.get === "function") {
+      const normalized: any[] = [];
+      for (let i = 0; i < results.size; i++) {
+        normalized.push(results.get(i));
+      }
+      return normalized;
+    }
+    return [];
   }
 }

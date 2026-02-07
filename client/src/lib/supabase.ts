@@ -51,7 +51,8 @@ export type Tables = {
     severity: string;
     confidence: number;
     page_index: number;
-    rect: object;
+    rect: object | null;
+    search_text: string | null;
     found_value: string | null;
     expected_value: string | null;
     form_field_name: string | null;

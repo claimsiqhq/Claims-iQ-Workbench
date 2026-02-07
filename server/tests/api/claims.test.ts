@@ -7,7 +7,7 @@ const mockStorage = {
     { id: "1", claimId: "CLM-001", status: "open" },
     { id: "2", claimId: "CLM-002", status: "in_progress" },
   ]),
-  getClaim: vi.fn().mockImplementation((id: string) => {
+  getClaimById: vi.fn().mockImplementation((id: string) => {
     if (id === "CLM-001") {
       return Promise.resolve({ id: "1", claimId: "CLM-001", status: "open" });
     }
@@ -35,13 +35,13 @@ describe("Claims API", () => {
 
   describe("GET /api/claims/:claimId", () => {
     it("should return a single claim by ID", async () => {
-      const claim = await mockStorage.getClaim("CLM-001");
+      const claim = await mockStorage.getClaimById("CLM-001");
       expect(claim).toBeDefined();
       expect(claim?.claimId).toBe("CLM-001");
     });
 
     it("should return null for non-existent claim", async () => {
-      const claim = await mockStorage.getClaim("NON-EXISTENT");
+      const claim = await mockStorage.getClaimById("NON-EXISTENT");
       expect(claim).toBeNull();
     });
   });
@@ -55,7 +55,7 @@ describe("Claims API", () => {
 
   describe("GET /api/claims/:claimId/issues", () => {
     it("should return issues for a claim", async () => {
-      const issues = await mockStorage.getIssues("CLM-001");
+      const issues = await mockStorage.getIssues("CLM-001", "DOC-001");
       expect(Array.isArray(issues)).toBe(true);
     });
   });

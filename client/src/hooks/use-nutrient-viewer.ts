@@ -5,6 +5,7 @@ export interface NutrientViewerOptions {
   documentUrl?: string;
   licenseKey?: string;
   container?: HTMLElement | null;
+  requestHeaders?: Record<string, string>;
   instant?: {
     serverUrl: string;
     documentId: string;
@@ -57,6 +58,10 @@ export function useNutrientViewer(options: NutrientViewerOptions) {
         if (options.licenseKey) {
           config.licenseKey = options.licenseKey;
         }
+        
+        if (options.requestHeaders) {
+          config.requestHeaders = options.requestHeaders;
+        }
 
         const viewerInstance = await NutrientViewer.load(config);
 
@@ -83,7 +88,7 @@ export function useNutrientViewer(options: NutrientViewerOptions) {
         instanceRef.current = null;
       }
     };
-  }, [options.documentUrl, options.instant?.documentId, options.instant?.serverUrl, options.instant?.jwt, options.container]);
+  }, [options.documentUrl, options.instant?.documentId, options.instant?.serverUrl, options.instant?.jwt, options.container, options.requestHeaders]);
 
   return {
     instance,

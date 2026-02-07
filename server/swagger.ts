@@ -48,6 +48,7 @@ const options: swaggerJsdoc.Options = {
         get: {
           summary: "Get claim by ID",
           tags: ["Claims"],
+          security: [{ bearerAuth: [] }],
           parameters: [{ name: "claimId", in: "path", required: true, schema: { type: "string" } }],
           responses: { "200": { description: "Claim details" }, "404": { description: "Claim not found" } },
         },
@@ -56,6 +57,7 @@ const options: swaggerJsdoc.Options = {
         get: {
           summary: "Get documents for a claim",
           tags: ["Documents"],
+          security: [{ bearerAuth: [] }],
           parameters: [{ name: "claimId", in: "path", required: true, schema: { type: "string" } }],
           responses: { "200": { description: "List of documents" } },
         },
