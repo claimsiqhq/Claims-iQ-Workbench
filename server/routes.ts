@@ -339,17 +339,33 @@ async function downloadFromSupabase(documentId: string): Promise<Buffer | null> 
   const docWithPath = doc as any;
   const filePath = docWithPath.filePath || `public/${documentId}.pdf`;
   
-  const { data, error } = await supabaseAdmin.storage
-    .from('documents')
-    .download(filePath);
-  
-  if (error) {
-    console.error('Error downloading from Supabase:', error);
+  try {
+    const downloadPromise = supabaseAdmin.storage
+      .from('documents')
+      .download(filePath);
+    
+    const timeoutPromise = new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error('Supabase storage download timeout')), 30000)
+    );
+    
+    const { data, error } = await Promise.race([downloadPromise, timeoutPromise]) as any;
+    
+    if (error) {
+      console.error('Error downloading from Supabase:', error);
+      return null;
+    }
+    
+    if (!data) {
+      console.error('No data returned from Supabase storage download');
+      return null;
+    }
+    
+    const arrayBuffer = await data.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  } catch (err) {
+    console.error('Supabase download failed:', err);
     return null;
   }
-  
-  const arrayBuffer = await data.arrayBuffer();
-  return Buffer.from(arrayBuffer);
 }
 
 /**
@@ -972,6 +988,7 @@ export async function registerRoutes(
 
   app.get("/files/:documentId.pdf", authenticateRequest, async (req, res) => {
     const documentId = sanitizeId(req.params.documentId);
+    console.log(`[files] Serving PDF: ${documentId}`);
     
     if (!documentId) {
       return res.status(400).json({ error: "Invalid document ID" });
@@ -979,36 +996,41 @@ export async function registerRoutes(
 
     const document = await storage.getDocument(documentId);
     if (!document) {
+      console.log(`[files] Document record not found: ${documentId}`);
       return res.status(404).json({ error: "Document not found" });
     }
 
     if (isSupabaseConfigured()) {
       const claim = await storage.getClaimById(document.claimId, req.userId);
       if (!claim) {
+        console.log(`[files] Access denied for document ${documentId}, userId=${req.userId}`);
         return res.status(403).json({ error: "Access denied" });
       }
     }
     
-    const exists = await documentExistsCheck(documentId);
-    if (!exists) {
-      return res.status(404).json({ error: "Document not found" });
-    }
-    
     if (isSupabaseConfigured()) {
+      console.log(`[files] Attempting Supabase storage download for ${documentId}`);
       const fileBuffer = await downloadFromSupabase(documentId);
       if (fileBuffer) {
+        console.log(`[files] Supabase download success, size=${fileBuffer.length} bytes`);
         res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `inline; filename="${documentId}.pdf"`);
+        res.setHeader("Cache-Control", "private, max-age=3600");
         return res.send(fileBuffer);
       }
+      console.log(`[files] Supabase download failed, trying local fallback`);
     }
     
     const filePath = path.join(STORAGE_DIR, `${documentId}.pdf`);
 
     if (!fs.existsSync(filePath)) {
+      console.log(`[files] Local file not found: ${filePath}`);
       return res.status(404).json({ error: "File not found" });
     }
 
+    console.log(`[files] Serving local file: ${filePath}`);
     res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Cache-Control", "private, max-age=3600");
     res.sendFile(filePath);
   });
 

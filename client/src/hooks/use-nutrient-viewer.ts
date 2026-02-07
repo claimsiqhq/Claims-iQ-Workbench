@@ -19,6 +19,10 @@ export function useNutrientViewer(options: NutrientViewerOptions) {
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<any>(null);
+  const requestHeadersRef = useRef(options.requestHeaders);
+  const loadingRef = useRef(false);
+
+  requestHeadersRef.current = options.requestHeaders;
 
   useEffect(() => {
     let mounted = true;
@@ -32,17 +36,31 @@ export function useNutrientViewer(options: NutrientViewerOptions) {
         return;
       }
 
+      if (loadingRef.current) {
+        return;
+      }
+
+      loadingRef.current = true;
       setIsLoading(true);
       setError(null);
 
       try {
         if (instanceRef.current && typeof instanceRef.current.unload === 'function') {
-          await instanceRef.current.unload();
+          try {
+            await instanceRef.current.unload();
+          } catch (unloadErr) {
+            console.warn("Error unloading previous viewer instance:", unloadErr);
+          }
           instanceRef.current = null;
         }
 
         const container = options.container || containerRef.current;
-        if (!container) return;
+        if (!container) {
+          loadingRef.current = false;
+          return;
+        }
+
+        container.innerHTML = '';
 
         const config: any = {
           container,
@@ -59,23 +77,31 @@ export function useNutrientViewer(options: NutrientViewerOptions) {
           config.licenseKey = options.licenseKey;
         }
         
-        if (options.requestHeaders) {
-          config.requestHeaders = options.requestHeaders;
+        if (requestHeadersRef.current) {
+          config.requestHeaders = requestHeadersRef.current;
         }
 
+        console.log("[NutrientViewer] Loading document:", options.documentUrl || options.instant?.documentId);
         const viewerInstance = await NutrientViewer.load(config);
+        console.log("[NutrientViewer] Document loaded successfully");
 
         if (mounted) {
           instanceRef.current = viewerInstance;
           setInstance(viewerInstance);
           setIsLoading(false);
+        } else {
+          if (typeof viewerInstance.unload === 'function') {
+            viewerInstance.unload().catch(console.error);
+          }
         }
       } catch (err) {
+        console.error("Failed to load Nutrient viewer:", err);
         if (mounted) {
-          console.error("Failed to load Nutrient viewer:", err);
           setError(err instanceof Error ? err.message : "Failed to load viewer");
           setIsLoading(false);
         }
+      } finally {
+        loadingRef.current = false;
       }
     };
 
@@ -88,13 +114,13 @@ export function useNutrientViewer(options: NutrientViewerOptions) {
         instanceRef.current = null;
       }
     };
-  }, [options.documentUrl, options.instant?.documentId, options.instant?.serverUrl, options.instant?.jwt, options.container, options.requestHeaders]);
+  }, [options.documentUrl, options.instant?.documentId, options.instant?.serverUrl, options.instant?.jwt, options.container]);
 
   return {
     instance,
     isLoading,
     error,
     containerRef,
-    NutrientViewer, // Expose the module for direct access to Annotations/Geometry
+    NutrientViewer,
   };
 }

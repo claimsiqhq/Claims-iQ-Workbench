@@ -278,10 +278,15 @@ function Workbench() {
     return undefined;
   }, [isDocumentLoaded, selectedDocumentId, sessionData]);
 
+  const requestHeaders = useMemo(() => {
+    if (!viewerAuthToken) return undefined;
+    return { Authorization: `Bearer ${viewerAuthToken}` };
+  }, [viewerAuthToken]);
+
   const { instance, isLoading: viewerLoading, containerRef, NutrientViewer } = useNutrientViewer({
     documentUrl: documentUrl,
     instant: instantConfig,
-    requestHeaders: viewerAuthToken ? { Authorization: `Bearer ${viewerAuthToken}` } : undefined,
+    requestHeaders,
   });
 
   const updateIssueStatusWithRollback = useCallback(async (issueId: string, nextStatus: IssueStatus) => {
