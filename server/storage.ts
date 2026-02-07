@@ -140,7 +140,7 @@ export class SupabaseStorage implements IStorage {
     let query = supabaseAdmin.from('claims').select('*');
     
     if (isRealUser) {
-      query = query.eq('user_id', userId);
+      query = query.or(`user_id.eq.${userId},user_id.is.null`);
     }
     
     const { data, error } = await query.order('created_at', { ascending: false });
@@ -218,7 +218,7 @@ export class SupabaseStorage implements IStorage {
       .select('*')
       .eq('claim_id', claimId);
     if (userId) {
-      query = query.eq('user_id', userId);
+      query = query.or(`user_id.eq.${userId},user_id.is.null`);
     }
     
     const { data, error } = await query.single();
