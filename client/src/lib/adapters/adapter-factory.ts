@@ -20,12 +20,14 @@ export class PDFAdapterFactory {
         adapter = new NutrientAdapter();
         break;
       case "pdfjs":
-        // Future: PDF.js adapter for basic viewing
-        throw new Error("PDF.js adapter not implemented");
       case "custom":
-        throw new Error("Custom adapter not implemented");
+        console.warn(`Unsupported PDF processor type "${type}", falling back to Nutrient adapter.`);
+        adapter = new NutrientAdapter();
+        break;
       default:
-        throw new Error(`Unknown processor type: ${type}`);
+        console.warn(`Unknown PDF processor type "${type}", falling back to Nutrient adapter.`);
+        adapter = new NutrientAdapter();
+        break;
     }
 
     await adapter.initialize(instance, module);

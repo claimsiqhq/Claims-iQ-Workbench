@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS issues (
   severity TEXT NOT NULL CHECK (severity IN ('critical', 'warning', 'info')),
   confidence DECIMAL(3,2) NOT NULL,
   page_index INTEGER NOT NULL DEFAULT 0,
-  rect JSONB NOT NULL,
+  rect JSONB,
   found_value TEXT,
   expected_value TEXT,
   form_field_name TEXT,
@@ -67,6 +67,13 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   after_value TEXT,
   user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Rate limits table - shared store for request throttling
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL,
+  reset_time BIGINT NOT NULL
 );
 
 -- Create indexes for faster queries
@@ -184,7 +191,8 @@ USING (bucket_id = 'documents' AND auth.uid()::text = (storage.foldername(name))
 -- Corrections table - Stores canonical corrections per document
 CREATE TABLE IF NOT EXISTS corrections (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  document_id TEXT NOT NULL,
+  claim_id TEXT NOT NULL REFERENCES claims(claim_id) ON DELETE CASCADE,
+  document_id TEXT NOT NULL REFERENCES documents(document_id) ON DELETE CASCADE,
   type TEXT NOT NULL CHECK (type IN (
     'typo', 'date_error', 'phone_format', 'name_mismatch',
     'address_error', 'numeric_error', 'missing_value',
@@ -213,7 +221,7 @@ CREATE TABLE IF NOT EXISTS corrections (
 -- Annotations table - Stores visual annotations on documents
 CREATE TABLE IF NOT EXISTS annotations (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  document_id TEXT NOT NULL,
+  document_id TEXT NOT NULL REFERENCES documents(document_id) ON DELETE CASCADE,
   type TEXT NOT NULL CHECK (type IN (
     'highlight', 'comment', 'flag', 'strikethrough', 'underline'
   )),
@@ -231,7 +239,7 @@ CREATE TABLE IF NOT EXISTS annotations (
 -- Cross-document validations table - Stores inconsistencies across claim documents
 CREATE TABLE IF NOT EXISTS cross_document_validations (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  claim_id TEXT NOT NULL,
+  claim_id TEXT NOT NULL REFERENCES claims(claim_id) ON DELETE CASCADE,
   field TEXT NOT NULL CHECK (field IN (
     'claim_number', 'policy_number', 'insured_name', 'insured_phone',
     'insured_email', 'date_of_loss', 'property_address', 'loss_amount',
@@ -257,6 +265,7 @@ CREATE TABLE IF NOT EXISTS cross_document_validations (
 
 -- Indexes for canonical schema tables
 CREATE INDEX IF NOT EXISTS idx_corrections_document_id ON corrections(document_id);
+CREATE INDEX IF NOT EXISTS idx_corrections_claim_id ON corrections(claim_id);
 CREATE INDEX IF NOT EXISTS idx_corrections_status ON corrections(status);
 CREATE INDEX IF NOT EXISTS idx_corrections_user_id ON corrections(user_id);
 CREATE INDEX IF NOT EXISTS idx_annotations_document_id ON annotations(document_id);

@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL,
+  reset_time BIGINT NOT NULL
+);

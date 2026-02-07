@@ -42,6 +42,7 @@ export type DocumentValue = z.infer<typeof DocumentValueSchema>;
  */
 export const CrossDocumentValidationSchema = z.object({
   id: z.string().uuid(),
+  claim_id: z.string(),
   field: ValidatedFieldSchema,
   severity: SeveritySchema,
   
