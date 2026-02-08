@@ -96,18 +96,20 @@ export function AnnotationPanel({
     if (!onCreateAnnotation) return;
     
     const pageIndex = currentPage !== undefined ? currentPage : selectedPageIndex || 0;
+    // Place annotation at center of page with reasonable default size
     const annotation: Annotation = {
       id: crypto.randomUUID(),
       type,
       location: {
         bbox: {
           pageIndex,
-          left: 10,
-          top: 10,
-          width: 80,
-          height: 20,
+          left: 100,
+          top: 300,
+          width: 200,
+          height: 30,
         },
       },
+      text: type === "comment" ? "New comment" : type === "flag" ? "Flagged for review" : undefined,
       created_by: "current-user",
       created_at: new Date().toISOString(),
     };
@@ -115,10 +117,12 @@ export function AnnotationPanel({
     await onCreateAnnotation(annotation);
   };
 
-  const handleSelectLocation = (type: AnnotationType) => {
+  const handleSelectLocation = async (type: AnnotationType) => {
     if (onStartLocationSelection) {
       onStartLocationSelection(type);
     }
+    // Quick create the annotation at a default position on the current page
+    await handleQuickCreate(type);
   };
 
   return (

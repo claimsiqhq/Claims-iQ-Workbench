@@ -122,6 +122,7 @@ describe('CrossDocumentValidationSchema', () => {
   it('validates a complete validation', () => {
     const validation = {
       id: '550e8400-e29b-41d4-a716-446655440000',
+      claim_id: 'CLM-001',
       field: 'claim_number',
       severity: 'critical',
       documents: [

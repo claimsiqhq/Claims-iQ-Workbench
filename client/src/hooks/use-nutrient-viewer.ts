@@ -17,6 +17,7 @@ export function useNutrientViewer(options: NutrientViewerOptions) {
   const [instance, setInstance] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<any>(null);
   const requestHeadersRef = useRef(options.requestHeaders);
@@ -89,6 +90,17 @@ export function useNutrientViewer(options: NutrientViewerOptions) {
           instanceRef.current = viewerInstance;
           setInstance(viewerInstance);
           setIsLoading(false);
+          
+          // Listen for page changes to track currentPageIndex
+          try {
+            viewerInstance.addEventListener("viewState.currentPageIndex.change", (pageIndex: number) => {
+              if (mounted) {
+                setCurrentPageIndex(pageIndex);
+              }
+            });
+          } catch (e) {
+            console.warn("[NutrientViewer] Could not attach page change listener:", e);
+          }
         } else {
           if (typeof viewerInstance.unload === 'function') {
             viewerInstance.unload().catch(console.error);
@@ -122,5 +134,6 @@ export function useNutrientViewer(options: NutrientViewerOptions) {
     error,
     containerRef,
     NutrientViewer,
+    currentPageIndex,
   };
 }

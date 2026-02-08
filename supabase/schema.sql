@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS issues (
   rect JSONB,
   found_value TEXT,
   expected_value TEXT,
+  search_text TEXT,
   form_field_name TEXT,
   label TEXT,
   suggested_fix JSONB,
@@ -91,6 +92,22 @@ ALTER TABLE claims ENABLE ROW LEVEL SECURITY;
 ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE issues ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies before recreating (makes schema idempotent)
+DROP POLICY IF EXISTS "Users can view their own claims" ON claims;
+DROP POLICY IF EXISTS "Users can insert their own claims" ON claims;
+DROP POLICY IF EXISTS "Users can update their own claims" ON claims;
+DROP POLICY IF EXISTS "Users can delete their own claims" ON claims;
+DROP POLICY IF EXISTS "Users can view their own documents" ON documents;
+DROP POLICY IF EXISTS "Users can insert their own documents" ON documents;
+DROP POLICY IF EXISTS "Users can update their own documents" ON documents;
+DROP POLICY IF EXISTS "Users can delete their own documents" ON documents;
+DROP POLICY IF EXISTS "Users can view their own issues" ON issues;
+DROP POLICY IF EXISTS "Users can insert their own issues" ON issues;
+DROP POLICY IF EXISTS "Users can update their own issues" ON issues;
+DROP POLICY IF EXISTS "Users can delete their own issues" ON issues;
+DROP POLICY IF EXISTS "Users can view their own audit logs" ON audit_logs;
+DROP POLICY IF EXISTS "Users can insert their own audit logs" ON audit_logs;
 
 -- RLS Policies for claims
 CREATE POLICY "Users can view their own claims" ON claims
@@ -147,15 +164,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Apply updated_at triggers
+-- Apply updated_at triggers (drop first for idempotency)
+DROP TRIGGER IF EXISTS update_claims_updated_at ON claims;
 CREATE TRIGGER update_claims_updated_at
   BEFORE UPDATE ON claims
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_documents_updated_at ON documents;
 CREATE TRIGGER update_documents_updated_at
   BEFORE UPDATE ON documents
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_issues_updated_at ON issues;
 CREATE TRIGGER update_issues_updated_at
   BEFORE UPDATE ON issues
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -170,7 +190,11 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('documents', 'documents', false)
 ON CONFLICT (id) DO NOTHING;
 
--- Storage RLS policies
+-- Storage RLS policies (drop first for idempotency)
+DROP POLICY IF EXISTS "Users can upload their own files" ON storage.objects;
+DROP POLICY IF EXISTS "Users can view their own files" ON storage.objects;
+DROP POLICY IF EXISTS "Users can delete their own files" ON storage.objects;
+
 CREATE POLICY "Users can upload their own files"
 ON storage.objects FOR INSERT
 WITH CHECK (bucket_id = 'documents' AND auth.uid()::text = (storage.foldername(name))[1]);
@@ -281,6 +305,20 @@ ALTER TABLE corrections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE annotations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cross_document_validations ENABLE ROW LEVEL SECURITY;
 
+-- Drop existing policies before recreating (idempotent)
+DROP POLICY IF EXISTS "Users can view their own corrections" ON corrections;
+DROP POLICY IF EXISTS "Users can insert their own corrections" ON corrections;
+DROP POLICY IF EXISTS "Users can update their own corrections" ON corrections;
+DROP POLICY IF EXISTS "Users can delete their own corrections" ON corrections;
+DROP POLICY IF EXISTS "Users can view their own annotations" ON annotations;
+DROP POLICY IF EXISTS "Users can insert their own annotations" ON annotations;
+DROP POLICY IF EXISTS "Users can update their own annotations" ON annotations;
+DROP POLICY IF EXISTS "Users can delete their own annotations" ON annotations;
+DROP POLICY IF EXISTS "Users can view their own validations" ON cross_document_validations;
+DROP POLICY IF EXISTS "Users can insert their own validations" ON cross_document_validations;
+DROP POLICY IF EXISTS "Users can update their own validations" ON cross_document_validations;
+DROP POLICY IF EXISTS "Users can delete their own validations" ON cross_document_validations;
+
 -- RLS Policies for corrections
 CREATE POLICY "Users can view their own corrections" ON corrections
   FOR SELECT USING (auth.uid() = user_id);
@@ -340,18 +378,33 @@ CREATE INDEX IF NOT EXISTS idx_correction_schemas_user_id ON correction_schemas(
 
 ALTER TABLE correction_schemas ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Service role full access on correction_schemas" ON correction_schemas;
 CREATE POLICY "Service role full access on correction_schemas" ON correction_schemas
   FOR ALL USING (true) WITH CHECK (true);
 
--- Updated_at triggers for canonical schema tables
+-- Updated_at triggers for canonical schema tables (drop first for idempotency)
+DROP TRIGGER IF EXISTS update_corrections_updated_at ON corrections;
 CREATE TRIGGER update_corrections_updated_at
   BEFORE UPDATE ON corrections
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_annotations_updated_at ON annotations;
 CREATE TRIGGER update_annotations_updated_at
   BEFORE UPDATE ON annotations
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_validations_updated_at ON cross_document_validations;
 CREATE TRIGGER update_validations_updated_at
   BEFORE UPDATE ON cross_document_validations
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Migration: Add search_text column to issues table if it doesn't exist
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'issues' AND column_name = 'search_text'
+  ) THEN
+    ALTER TABLE issues ADD COLUMN search_text TEXT;
+  END IF;
+END $$;

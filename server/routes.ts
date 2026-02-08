@@ -773,6 +773,8 @@ export async function registerRoutes(
 
             parsedIssueBundle = adaptToIssueBundle(issuesData, documentId);
 
+            // Save the full adapted correction payload as an audit trail.
+            // Issues are served from the database; this file is for debugging/backup only.
             const fullPayloadPath = path.join(STORAGE_DIR, `${claimId}__${documentId}__correction_payload.json`);
             fs.writeFileSync(fullPayloadPath, JSON.stringify(correctionPayloadResult, null, 2));
 
@@ -1635,89 +1637,10 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/claims/:claimId/validate-cross-document", validationLimiter, authenticateRequest, async (req, res) => {
-    // Alias for backward compatibility - redirect to new endpoint
-    const sanitizedClaimId = sanitizeId(req.params.claimId);
-    if (!sanitizedClaimId) {
-      return sendError(res, 400, "INVALID_INPUT", "Invalid claim ID");
-    }
-    
-    // Call the actual handler by constructing a new request
-    const originalUrl = req.url;
-    req.url = `/api/claims/${sanitizedClaimId}/validate`;
-    
-    // Use the validate endpoint handler
-    try {
-      const claim = await storage.getClaimById(sanitizedClaimId, req.userId);
-      if (!claim) {
-        return sendError(res, 404, "NOT_FOUND", "Claim not found");
-      }
-
-      const documents = await storage.getDocumentsByClaim(sanitizedClaimId);
-      
-      if (documents.length < 2) {
-        return sendSuccess(res, { validations: [], count: 0, message: "Need at least 2 documents to validate" });
-      }
-
-      const extractor = new FieldExtractor();
-      const validator = new CrossDocumentValidator();
-
-      const extractedDocs = await Promise.all(
-        documents.map(async (doc) => {
-          let content = "";
-          
-          if (isSupabaseConfigured()) {
-            const fileBuffer = await downloadFromSupabase(doc.documentId);
-            if (fileBuffer) {
-              const tempPath = path.join(STORAGE_DIR, `temp-${doc.documentId}.pdf`);
-              fs.writeFileSync(tempPath, fileBuffer);
-              try {
-                content = await extractPdfText(tempPath, 10);
-                fs.unlinkSync(tempPath);
-              } catch (parseError) {
-                console.error(`Error extracting text from ${doc.documentId}:`, parseError);
-                if (fs.existsSync(tempPath)) {
-                  fs.unlinkSync(tempPath);
-                }
-              }
-            }
-          } else {
-            const localPath = path.join(STORAGE_DIR, `${doc.documentId}.pdf`);
-            if (fs.existsSync(localPath)) {
-              try {
-                content = await extractPdfText(localPath, 10);
-              } catch (parseError) {
-                console.error(`Error extracting text from ${doc.documentId}:`, parseError);
-              }
-            }
-          }
-          
-          const fields = await extractor.extractFromDocument(doc.documentId, content);
-          return {
-            document_id: doc.documentId,
-            document_name: doc.name,
-            fields,
-          };
-        })
-      );
-
-      const validations = await validator.validateClaim(sanitizedClaimId, extractedDocs);
-
-      for (const validation of validations) {
-        await storage.createCrossDocValidation({
-          ...validation,
-        }, req.userId);
-      }
-      
-      cache.deletePattern(`validations:|cross-validations:`);
-
-      sendSuccess(res, { validations, count: validations.length });
-    } catch (error) {
-      console.error("Cross-document validation error:", error);
-      sendError(res, 500, "VALIDATION_ERROR", "Failed to validate cross-document consistency");
-    } finally {
-      req.url = originalUrl;
-    }
+  // Backward-compatible alias — redirects to the canonical /validate endpoint
+  app.post("/api/claims/:claimId/validate-cross-document", validationLimiter, authenticateRequest, (req, res, next) => {
+    req.url = `/api/claims/${req.params.claimId}/validate`;
+    next();
   });
 
   return httpServer;

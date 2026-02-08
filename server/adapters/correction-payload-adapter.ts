@@ -285,14 +285,23 @@ export function adaptToIssueBundle(payload: any, documentId: string) {
   const adapted = adaptCorrectionPayload(payload);
 
   // Build a map from document_id -> original corrections so we can get raw page numbers
+  // We key by BOTH search_text AND original_value to handle all matching paths
   const rawPageMap = new Map<string, Map<string, number>>();
   for (const doc of (payload.documents || [])) {
     const corrMap = new Map<string, number>();
     for (const corr of (doc.corrections || [])) {
-      // Store page number (1-indexed from JSON) keyed by search_text or original_value
-      const key = corr.location?.search_text || corr.original_value || "";
-      if (key && corr.location?.page) {
-        corrMap.set(key, corr.location.page);
+      const page = corr.location?.page;
+      if (!page) continue;
+      
+      // Store page under multiple keys to maximize lookup success
+      if (corr.location?.search_text) {
+        corrMap.set(corr.location.search_text, page);
+      }
+      if (corr.original_value) {
+        corrMap.set(corr.original_value, page);
+      }
+      if (corr.corrected_value) {
+        corrMap.set(corr.corrected_value, page);
       }
     }
     rawPageMap.set(doc.document_id, corrMap);
@@ -300,16 +309,21 @@ export function adaptToIssueBundle(payload: any, documentId: string) {
 
   const allIssues = adapted.documents.flatMap((doc) =>
     doc.corrections.map((corr) => {
-      // Determine pageIndex: prefer bbox, then search_text context, then raw payload page
+      // Determine pageIndex: prefer bbox, then look up from raw payload page
       let pageIndex = 0;
       if (corr.location.bbox) {
         pageIndex = corr.location.bbox.pageIndex;
-      } else if (corr.location.search_text) {
-        // Look up the original page from the raw payload
+      } else {
+        // Look up the original page from the raw payload using multiple keys
         const corrMap = rawPageMap.get(doc.documentId);
-        const rawPage = corrMap?.get(corr.location.search_text.text);
-        if (rawPage) {
-          pageIndex = rawPage - 1; // Convert 1-indexed to 0-indexed
+        if (corrMap) {
+          const rawPage = 
+            (corr.location.search_text?.text ? corrMap.get(corr.location.search_text.text) : undefined) ||
+            (corr.found_value ? corrMap.get(corr.found_value) : undefined) ||
+            (corr.expected_value ? corrMap.get(corr.expected_value) : undefined);
+          if (rawPage) {
+            pageIndex = rawPage - 1; // Convert 1-indexed to 0-indexed
+          }
         }
       }
 

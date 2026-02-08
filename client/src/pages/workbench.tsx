@@ -283,7 +283,7 @@ function Workbench() {
     return { Authorization: `Bearer ${viewerAuthToken}` };
   }, [viewerAuthToken]);
 
-  const { instance, isLoading: viewerLoading, containerRef, NutrientViewer } = useNutrientViewer({
+  const { instance, isLoading: viewerLoading, containerRef, NutrientViewer, currentPageIndex } = useNutrientViewer({
     documentUrl: documentUrl,
     instant: instantConfig,
     requestHeaders,
@@ -360,6 +360,11 @@ function Workbench() {
       setAnnotations([]);
     }
   }, [fetchedAnnotations]);
+
+  // Sync currentPage with viewer's page index
+  useEffect(() => {
+    setCurrentPage(currentPageIndex);
+  }, [currentPageIndex]);
 
   // Fetch cross-document validations when claim is selected
   const { data: fetchedValidations } = useQuery({
@@ -1026,6 +1031,30 @@ function Workbench() {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
     
+    // Try to enter the Nutrient content editing mode so the user can edit directly
+    if (instance) {
+      try {
+        // Set the viewer to text editing interaction mode if available
+        if (NutrientViewer?.InteractionMode?.CONTENT_EDITOR) {
+          await instance.setViewState((viewState: any) =>
+            viewState.set("interactionMode", NutrientViewer.InteractionMode.CONTENT_EDITOR)
+          );
+        }
+        
+        // Highlight the annotation so the user can see what to edit
+        const annotationId = issueAnnotations.get(issue.issueId);
+        if (annotationId) {
+          try {
+            await instance.setEditingAnnotation(annotationId);
+          } catch (_) {
+            // Not all annotations support editing mode
+          }
+        }
+      } catch (e) {
+        console.warn("Could not enter content editor mode:", e);
+      }
+    }
+    
     const statusUpdated = await updateIssueStatusWithRollback(issue.issueId, "MANUAL");
     if (!statusUpdated) {
       return;
@@ -1042,7 +1071,7 @@ function Workbench() {
 
     toast({
       title: "Manual Edit Mode",
-      description: "Please edit the document manually using the viewer tools",
+      description: `Click on the text "${issue.foundValue || ''}" in the document to edit it directly. Use the viewer toolbar for formatting options.`,
     });
   };
 
@@ -1660,11 +1689,16 @@ function Workbench() {
                 <DropdownMenuLabel className="text-xs">Export</DropdownMenuLabel>
                 <DropdownMenuItem
                   onClick={() => {
-                    const logs = JSON.stringify({ exportedAt: new Date().toISOString(), claimId: selectedClaimId, documentId: selectedDocumentId, issueStatuses: Object.fromEntries(issueStatuses) }, null, 2);
-                    const blob = new Blob([logs], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a'); a.href = url; a.download = `audit-log-${selectedClaimId || 'all'}-${new Date().toISOString().split('T')[0]}.json`; a.click(); URL.revokeObjectURL(url);
-                    toast({ title: "Exported", description: "Audit log downloaded" });
+                    try {
+                      const logs = JSON.stringify({ exportedAt: new Date().toISOString(), claimId: selectedClaimId, documentId: selectedDocumentId, issueStatuses: Object.fromEntries(issueStatuses) }, null, 2);
+                      const blob = new Blob([logs], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a'); a.href = url; a.download = `audit-log-${selectedClaimId || 'all'}-${new Date().toISOString().split('T')[0]}.json`; a.click(); URL.revokeObjectURL(url);
+                      toast({ title: "Exported", description: "Audit log downloaded" });
+                    } catch (err) {
+                      console.error("Export audit log failed:", err);
+                      toast({ title: "Export Failed", description: "Could not export audit log", variant: "destructive" });
+                    }
                   }}
                   data-testid="button-export-audit"
                 >
@@ -1672,12 +1706,21 @@ function Workbench() {
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
-                    const issues = issueBundle?.issues || [];
-                    const csv = [['Issue ID','Type','Severity','Status','Label','Found Value','Expected Value'].join(','), ...issues.map(issue => [issue.issueId,issue.type,issue.severity,issueStatuses.get(issue.issueId)||'OPEN',`"${(issue.label||'').replace(/"/g,'""')}"`,`"${(issue.foundValue||'').replace(/"/g,'""')}"`,`"${(issue.expectedValue||'').replace(/"/g,'""')}"`].join(','))].join('\n');
-                    const blob = new Blob([csv], { type: 'text/csv' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a'); a.href = url; a.download = `issues-${selectedClaimId||'all'}-${new Date().toISOString().split('T')[0]}.csv`; a.click(); URL.revokeObjectURL(url);
-                    toast({ title: "Exported", description: "Issues report downloaded" });
+                    try {
+                      const issues = issueBundle?.issues || [];
+                      if (issues.length === 0) {
+                        toast({ title: "Nothing to Export", description: "No issues to include in the report" });
+                        return;
+                      }
+                      const csv = [['Issue ID','Type','Severity','Status','Label','Found Value','Expected Value'].join(','), ...issues.map(issue => [issue.issueId,issue.type,issue.severity,issueStatuses.get(issue.issueId)||'OPEN',`"${(issue.label||'').replace(/"/g,'""')}"`,`"${(issue.foundValue||'').replace(/"/g,'""')}"`,`"${(issue.expectedValue||'').replace(/"/g,'""')}"`].join(','))].join('\n');
+                      const blob = new Blob([csv], { type: 'text/csv' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a'); a.href = url; a.download = `issues-${selectedClaimId||'all'}-${new Date().toISOString().split('T')[0]}.csv`; a.click(); URL.revokeObjectURL(url);
+                      toast({ title: "Exported", description: "Issues report downloaded" });
+                    } catch (err) {
+                      console.error("Export issues report failed:", err);
+                      toast({ title: "Export Failed", description: "Could not export issues report", variant: "destructive" });
+                    }
                   }}
                   data-testid="button-export-report"
                 >
@@ -1947,7 +1990,7 @@ function Workbench() {
                       </Button>
                     </div>
                     <div className="flex-1 overflow-hidden">
-                      <AnnotationPanel adapter={pdfAdapter} documentId={selectedDocumentId} annotations={annotations} onCreateAnnotation={handleCreateAnnotation} onDeleteAnnotation={handleDeleteAnnotation} currentPage={currentPage} />
+                      <AnnotationPanel adapter={pdfAdapter} documentId={selectedDocumentId} annotations={annotations} onCreateAnnotation={handleCreateAnnotation} onDeleteAnnotation={handleDeleteAnnotation} currentPage={currentPage} onStartLocationSelection={(type) => { /* Quick create at current page center */ }} />
                     </div>
                   </div>
                 </>

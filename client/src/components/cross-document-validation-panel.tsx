@@ -109,6 +109,21 @@ export function CrossDocumentValidationPanel({
                   </div>
                 </div>
               )}
+              {ignoredValidations.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-muted-foreground mb-2">Ignored</h3>
+                  <div className="space-y-2 opacity-60">
+                    {ignoredValidations.map((validation) => (
+                      <ValidationCard
+                        key={validation.id}
+                        validation={validation}
+                        expanded={expandedIds.has(validation.id)}
+                        onToggleExpand={() => toggleExpand(validation.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </ScrollArea>

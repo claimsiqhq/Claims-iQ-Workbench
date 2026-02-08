@@ -263,6 +263,8 @@ export const api = {
     });
   },
 
+  // --- Available API utilities (used by export features and future UI) ---
+
   async getAuditLogs(documentId?: string): Promise<AuditLog[]> {
     const url = documentId 
       ? `${API_BASE}/api/audit?documentId=${documentId}`
@@ -282,7 +284,7 @@ export const api = {
     return [];
   },
 
-  // Canonical schema endpoints
+  // Canonical schema endpoints (available for direct correction management)
   async getCorrections(documentId: string): Promise<Correction[]> {
     const res = await authenticatedFetch(`${API_BASE}/api/documents/${documentId}/corrections`);
     const data = await res.json();

@@ -447,6 +447,7 @@ export class SupabaseStorage implements IStorage {
         confidence: parseFloat(row.confidence),
         pageIndex: row.page_index,
         rect: rect, // Can be null if missing or invalid
+        searchText: row.search_text || row.found_value || undefined,
         foundValue: row.found_value,
         expectedValue: row.expected_value,
         formFieldName: row.form_field_name,
@@ -491,6 +492,7 @@ export class SupabaseStorage implements IStorage {
       rect: issue.rect,
       found_value: issue.foundValue,
       expected_value: issue.expectedValue,
+      search_text: (issue as any).searchText || issue.foundValue || null,
       form_field_name: issue.formFieldName,
       label: issue.label,
       suggested_fix: issue.suggestedFix,
